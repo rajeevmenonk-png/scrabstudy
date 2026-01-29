@@ -6,11 +6,13 @@ st.set_page_config(page_title="Scrabble Study Pro", layout="centered")
 
 @st.cache_data
 def load_data(uploaded_file):
-    # Parsing based on: Word | Definition | Front Hooks | Back Hooks | Prob | Extra
+    # Standard Scrabble list columns: Word | Definition | Front Hooks | Back Hooks | Prob | Extra
     cols = ['Word', 'Definition', 'Front_Hooks', 'Back_Hooks', 'Prob', 'Extra']
-    df = pd.read_csv(uploaded_file, sep='\t', names=cols, header=None, engine='python')
     
-    # Cleaning: strip dots and whitespace to ensure strict length counts
+    # Fix: Added encoding='latin-1' to handle special characters like '·'
+    df = pd.read_csv(uploaded_file, sep='\t', names=cols, header=None, engine='python', encoding='latin-1')
+    
+    # Cleaning: remove dots and whitespace to ensure strict length counts
     df['Word'] = df['Word'].astype(str).str.replace('·', '').str.strip().str.upper()
     df['Front_Hooks'] = df['Front_Hooks'].fillna('').astype(str).str.strip()
     df['Back_Hooks'] = df['Back_Hooks'].fillna('').astype(str).str.strip()
@@ -30,16 +32,14 @@ def generate_phony(real_word, valid_set):
     elif mode == 'transpose':
         idx = random.randint(0, len(arr) - 2)
         arr[idx], arr[idx+1] = arr[idx+1], arr[idx]
-    else: # Hook error
+    else: 
         return real_word + random.choice(['S', 'E', 'Y'])
     
     phony = "".join(arr)
-    # Ensure the phony isn't a valid word by chance
     return phony if phony not in valid_set else generate_phony(real_word, valid_set)
 
 st.title("Scrabble Study Pro")
 
-# Corrected function call: st.file_uploader
 uploaded_file = st.file_uploader("Upload your word list (.txt)", type="txt")
 
 if uploaded_file:
@@ -58,7 +58,7 @@ if uploaded_file:
         st.session_state.current_data = None
 
     def get_new_word():
-        # Strict length filtering to prevent 6s in a 5-letter quiz
+        # Strict length filtering (fixes the 6-letter word issue)
         pool = df[(df['Word'].str.len() == w_len) & (df['Prob'] <= max_p)]
         
         if pool.empty:
@@ -108,12 +108,13 @@ if uploaded_file:
                 st.error("Incorrect!")
 
             if st.session_state.is_phony:
+                # Feedback for phonies doesn't show definition/hooks
                 st.info(f"'{st.session_state.display_word}' is a PHONY.")
             else:
                 d = st.session_state.current_data
                 st.markdown("---")
                 st.write(f"**Definition:** {d['Definition']}")
-                # Clean hook display: [Front] ACTUAL_WORD [Back]
+                # Updated hook display: [Front] ACTUAL_WORD [Back]
                 f = f"[{d['Front_Hooks']}]" if d['Front_Hooks'] else "[ ]"
                 b = f"[{d['Back_Hooks']}]" if d['Back_Hooks'] else "[ ]"
                 st.markdown(f"**Hooks:** `{f}` **{d['Word']}** `{b}`")
