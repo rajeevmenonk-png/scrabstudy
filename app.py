@@ -17,8 +17,7 @@ for key, val in state_keys.items():
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
-# --- 2. KEYBOARD LISTENER ---
-# Maps keys 0-8 and 9 (for 8+) to tiles. Maps Enter to Next Rack.
+# --- 2. KEYBOARD & MOBILE-FIRST CSS ---
 components.html(
     """
     <script>
@@ -41,58 +40,66 @@ components.html(
 
 st.markdown("""
     <style>
-        .block-container { padding-top: 1rem; }
+        /* Compact App Layout */
+        .block-container { padding-top: 1.5rem; max-width: 1000px; margin: 0 auto; }
+        [data-testid="stSidebar"] { min-width: 240px; }
         
-        /* THE RACK */
-        .alphagram-text {
+        /* The Rack Display */
+        .rack-text {
             text-align: center; 
-            letter-spacing: 12px; 
+            letter-spacing: 10px; 
             color: #f1c40f; 
-            font-size: 3.8rem; 
+            font-size: clamp(2.5rem, 8vw, 4rem); 
             font-weight: 900;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
         }
 
-        /* TILE GRID (0-8 and 8+) */
-        .tile-wrap {
+        /* Tile Grid: Forces Square Tiles */
+        .tile-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
             max-width: 320px;
             margin: 0 auto;
         }
         
-        .tile-wrap div.stButton > button {
+        div.stButton > button {
             aspect-ratio: 1 / 1 !important;
             width: 100% !important;
-            font-size: 2.2rem !important;
-            font-weight: 900 !important;
+            font-size: 1.8rem !important;
+            font-weight: 800 !important;
             border-radius: 10px !important;
             background-color: #262730 !important;
             border: 2px solid #555 !important;
             box-shadow: 0 4px 0 #111;
-            margin-bottom: 5px;
-        }
-        .tile-wrap div.stButton > button:hover { border-color: #f1c40f !important; color: #f1c40f !important; }
-
-        /* CONTROL BUTTONS (Next/Skip) - Forced to be small */
-        .control-wrap {
-            max-width: 200px; /* Small fixed width */
-            margin: 20px auto;
         }
         
-        .control-wrap div.stButton > button {
-            height: 45px !important;
+        /* Control Buttons: Compact and Center-Fixed */
+        .control-panel {
+            max-width: 220px;
+            margin: 15px auto;
+        }
+        
+        .control-panel button {
+            aspect-ratio: auto !important;
+            height: 50px !important;
             font-size: 1rem !important;
-            font-weight: 600 !important;
             border-radius: 8px !important;
-            box-shadow: 0 3px 0 #111;
-            aspect-ratio: auto !important; /* Prevents being square */
+            box-shadow: 0 3px 0 #111 !important;
         }
 
         .next-btn button { background-color: #27ae60 !important; color: white !important; border: none !important; }
-        .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; margin-top: 10px; }
+        .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; margin-top: 8px; }
+        
+        /* Mobile adjustment */
+        @media (max-width: 600px) {
+            .block-container { padding: 10px; }
+            .tile-grid { max-width: 280px; }
+        }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. DATA & LOGIC ---
+# --- 3. DATA & SEARCH LOGIC ---
 @st.cache_data
 def load_lexicon(file_content):
     data, alphagram_map = [], defaultdict(list)
@@ -112,7 +119,7 @@ def load_lexicon(file_content):
 
 # --- 4. SIDEBAR ---
 st.sidebar.metric("Streak", st.session_state.streak)
-uploaded_file = st.sidebar.file_uploader("Upload Lexicon", type="txt", label_visibility="collapsed")
+uploaded_file = st.sidebar.file_uploader("Upload Lexicon (.txt)", type="txt")
 
 if uploaded_file:
     if 'master_data' not in st.session_state:
@@ -120,12 +127,13 @@ if uploaded_file:
         st.session_state.valid_alphas = set(st.session_state.alpha_map.keys())
 
     with st.sidebar.form("filter_form"):
-        w_len = st.number_input("Length", 2, 15, 7)
+        st.write("### Filter Rules")
+        w_len = st.number_input("Word Length", 2, 15, 7)
         c1, c2 = st.columns(2)
         min_p, max_p = c1.number_input("Min Prob", 0, 100000, 0), c2.number_input("Max Prob", 0, 100000, 40000)
         c3, c4 = st.columns(2)
         min_play, max_play = c3.number_input("Min Play", 0, 2000, 0), c4.number_input("Max Play", 0, 2000, 1000)
-        if st.form_submit_button("Apply Filters"):
+        if st.form_submit_button("Apply & Start New"):
             st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(min_p <= w['prob'] <= max_p and min_play <= w['play'] <= max_play for w in words)]
             st.session_state.needs_new_rack = True
@@ -156,31 +164,31 @@ if uploaded_file:
         if use_blank:
             arr = list(base); arr[random.randint(0, len(arr)-1)] = '?'
             rack = "".join(sorted(arr))
+        
         if st.session_state.is_phony:
-            for _ in range(20):
+            for _ in range(25):
                 v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
                 arr = list(rack); idx = random.randint(0, len(arr)-1)
                 if arr[idx] == '?': continue
                 arr[idx] = random.choice([x for x in v if x != arr[idx]]) if arr[idx] in v else random.choice([x for x in c if x != arr[idx]])
                 test_rack = "".join(sorted(arr))
                 sols = find_all_blank_anagrams(test_rack) if '?' in test_rack else st.session_state.alpha_map.get(test_rack, [])
-                if not sols:
-                    rack = test_rack; break
+                if not sols: rack = test_rack; break
+
         st.session_state.display_alpha, st.session_state.current_solutions = rack, (find_all_blank_anagrams(rack) if '?' in rack else st.session_state.alpha_map.get(rack, []))
         st.session_state.answered = False
         st.session_state.needs_new_rack = False
 
     if st.session_state.needs_new_rack: trigger_new()
 
-    # --- 6. MAIN LAYOUT ---
+    # --- 6. DISPLAY ---
     col1, col2 = st.columns([1, 1], gap="large")
 
     with col1:
-        st.markdown(f"<div class='alphagram-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='rack-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
-        # Tiles: 0-8 and 8+
-        st.markdown('<div class="tile-wrap">', unsafe_allow_html=True)
         if not st.session_state.answered:
+            st.markdown('<div class="tile-grid">', unsafe_allow_html=True)
             g1, g2, g3 = st.columns(3)
             rows = [g1, g2, g3]
             for i in range(10):
@@ -189,23 +197,20 @@ if uploaded_file:
                     st.session_state.last_guess = i
                     st.session_state.answered = True
                     st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Next/Skip: Contained in a small width box
-        st.markdown('<div class="control-wrap">', unsafe_allow_html=True)
-        if st.session_state.answered:
-            st.markdown('<div class="next-btn">', unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="control-panel next-btn">', unsafe_allow_html=True)
             if st.button("Next Rack (Enter)", use_container_width=True, type="primary"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="skip-btn">', unsafe_allow_html=True)
+        st.markdown('<div class="control-panel skip-btn">', unsafe_allow_html=True)
         if st.button("Skip Rack", use_container_width=True):
             st.session_state.streak = 0
             st.session_state.needs_new_rack = True
             st.rerun()
-        st.markdown('</div></div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
         if st.session_state.answered:
@@ -213,7 +218,7 @@ if uploaded_file:
             correct = (st.session_state.last_guess == real_count) or (st.session_state.last_guess == 9 and real_count > 8)
             
             if correct:
-                st.success(f"CORRECT! ({real_count})")
+                st.success(f"CORRECT! Total: {real_count}")
                 if st.session_state.last_scored_id != st.session_state.display_alpha:
                     st.session_state.streak += 1; st.session_state.last_scored_id = st.session_state.display_alpha; st.rerun()
             else:
@@ -225,4 +230,3 @@ if uploaded_file:
                     if st.session_state.show_defs: st.write(f"*{sol['def']}*")
                     st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
                     st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
-            if not st.session_state.current_solutions: st.info("Rack was a PHONY.")
