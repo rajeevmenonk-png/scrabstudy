@@ -17,7 +17,7 @@ for key, val in state_keys.items():
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
-# --- 2. KEYBOARD & FIXED UI STYLING ---
+# --- 2. KEYBOARD LISTENER ---
 components.html(
     """
     <script>
@@ -40,62 +40,50 @@ components.html(
 
 st.markdown("""
     <style>
-        /* Force app to stay compact */
-        .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-        
-        /* Sidebar Slimming */
+        .block-container { padding-top: 1rem; }
         [data-testid="stSidebar"] { min-width: 220px; max-width: 260px; }
         
-        /* The Alphagram "Rack" */
+        /* THE RACK */
         .alphagram-text {
             text-align: center; 
-            letter-spacing: 10px; 
+            letter-spacing: 12px; 
             color: #f1c40f; 
-            font-size: 3.5rem; 
+            font-size: 3.8rem; 
             font-weight: 900;
-            margin: 0;
-            padding: 10px 0;
-            line-height: 1;
+            margin-bottom: 20px;
         }
 
-        /* GRID FOR CHUNKY SQUARE TILES */
-        .stButton > button {
-            aspect-ratio: 1 / 1 !important; /* Forces Square */
+        /* BUTTON CONSTRAINTS - Prevents giant buttons */
+        .center-wrap {
+            max-width: 350px;
+            margin: 0 auto;
+        }
+
+        /* NUMBER TILES: Chunky & Square */
+        div.stButton > button {
+            aspect-ratio: 1 / 1 !important;
             width: 100% !important;
             font-size: 2rem !important;
             font-weight: 900 !important;
-            border-radius: 10px !important;
+            border-radius: 12px !important;
             background-color: #262730 !important;
             border: 2px solid #555 !important;
-            box-shadow: 0 4px 0 #111;
-            transition: 0.1s;
+            box-shadow: 0 5px 0 #111;
+            margin-bottom: 5px;
         }
         
-        div.stButton > button:active {
-            transform: translateY(4px);
-            box-shadow: none;
+        div.stButton > button:hover { border-color: #f1c40f !important; color: #f1c40f !important; }
+
+        /* NEXT & SKIP: Regular size, not giant */
+        .control-btns div.stButton > button {
+            aspect-ratio: auto !important;
+            height: 55px !important;
+            font-size: 1.2rem !important;
+            box-shadow: 0 4px 0 #1e8449;
         }
 
-        /* Next/Skip Button Styling */
-        .next-btn-container button {
-            background-color: #27ae60 !important;
-            aspect-ratio: auto !important;
-            height: 60px !important;
-            font-size: 1.2rem !important;
-            color: white !important;
-            border: none !important;
-            box-shadow: 0 4px 0 #1e8449 !important;
-        }
-        
-        .skip-btn-container button {
-            background-color: #c0392b !important;
-            aspect-ratio: auto !important;
-            height: 45px !important;
-            font-size: 0.9rem !important;
-            color: white !important;
-            border: none !important;
-            box-shadow: 0 4px 0 #922b21 !important;
-        }
+        .next-btn button { background-color: #27ae60 !important; color: white !important; border: none !important; }
+        .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; box-shadow: 0 4px 0 #922b21 !important; height: 45px !important; font-size: 1rem !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -163,7 +151,6 @@ if uploaded_file:
         if use_blank:
             arr = list(base); arr[random.randint(0, len(arr)-1)] = '?'
             rack = "".join(sorted(arr))
-
         if st.session_state.is_phony:
             for _ in range(20):
                 v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
@@ -186,8 +173,9 @@ if uploaded_file:
     with col1:
         st.markdown(f"<div class='alphagram-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
+        st.markdown('<div class="center-wrap">', unsafe_allow_html=True)
         if not st.session_state.answered:
-            # 3x3 + 1 grid for chunky square look
+            # 3-column grid for tiles
             g1, g2, g3 = st.columns(3)
             rows = [g1, g2, g3]
             for i in range(10):
@@ -197,18 +185,18 @@ if uploaded_file:
                     st.session_state.answered = True
                     st.rerun()
         else:
-            st.markdown('<div class="next-btn-container">', unsafe_allow_html=True)
+            st.markdown('<div class="control-btns next-btn">', unsafe_allow_html=True)
             if st.button("Next Rack (Enter)", use_container_width=True, type="primary"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="skip-btn-container">', unsafe_allow_html=True)
+        st.markdown('<div class="control-btns skip-btn">', unsafe_allow_html=True)
         if st.button("Skip / Reset Streak", use_container_width=True):
             st.session_state.streak = 0
             st.session_state.needs_new_rack = True
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div></div>', unsafe_allow_html=True)
 
     with col2:
         if st.session_state.answered:
