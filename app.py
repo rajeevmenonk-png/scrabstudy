@@ -3,8 +3,7 @@ import random
 import re
 from collections import defaultdict
 
-# 1. INITIALIZATION (Fixes the AttributeError)
-# We initialize every single variable the app uses at the very top.
+# 1. PERMANENT STATE INITIALIZATION
 state_defaults = {
     'streak': 0,
     'display_alpha': None,
@@ -12,7 +11,7 @@ state_defaults = {
     'current_solutions': [],
     'is_phony': False,
     'last_guess': 0,
-    'last_scored': None
+    'last_scored_id': None
 }
 
 for key, value in state_defaults.items():
@@ -27,8 +26,6 @@ def parse_scrabble_file(uploaded_file):
     for line in content.splitlines():
         parts = line.split('\t')
         if not parts: continue
-        
-        # Aggressive cleaning for strict word counts
         raw_word = parts[0].replace('·', '').upper()
         clean_word = re.sub(r'[^A-Z]', '', raw_word)
         if not clean_word: continue
@@ -80,7 +77,6 @@ if uploaded_file:
     filtered = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(w['prob'] <= max_p and w['play'] >= min_play for w in words)]
 
-    # Layout: Split Screen (Left for Input, Right for Result)
     col_main, col_res = st.columns([1, 1], gap="large")
 
     with col_main:
@@ -109,13 +105,17 @@ if uploaded_file:
                 st.rerun()
 
         if st.session_state.display_alpha:
-            # Alphagram Font Size Reduced for No-Scroll Layout
-            st.markdown(f"<h2 style='text-align: center; letter-spacing: 12px; color: #f1c40f; margin-top: 10px;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='text-align: center; letter-spacing: 12px; color: #f1c40f; margin-top: 5px;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
             
-            # Form enables the "Enter" key to submit
+            # Instruction text moved permanently outside the box
+            st.write("### How many valid words?")
+            st.caption("Press Enter to Submit")
+            
             with st.form("guess_form", clear_on_submit=False):
-                user_guess = st.number_input("How many valid words?", min_value=0, step=1)
-                submit = st.form_submit_button("Check Answer (Enter)", use_container_width=True)
+                # label is now hidden inside the widget to avoid duplication
+                user_guess = st.number_input("Input count:", min_value=0, step=1, label_visibility="collapsed")
+                submit = st.form_submit_button("Check Answer", use_container_width=True)
+                
                 if submit:
                     st.session_state.answered = True
                     st.session_state.last_guess = user_guess
@@ -123,23 +123,27 @@ if uploaded_file:
     with col_res:
         if st.session_state.answered:
             real_count = len(st.session_state.current_solutions)
+            
+            # VERIFIED FEEDBACK LOGIC
             if st.session_state.last_guess == real_count:
                 st.success(f"CORRECT! There are {real_count} word(s).")
-                if st.session_state.last_scored != st.session_state.display_alpha:
+                # Ensure streak only updates once for this specific rack
+                if st.session_state.last_scored_id != st.session_state.display_alpha:
                     st.session_state.streak += 1
-                    st.session_state.last_scored = st.session_state.display_alpha
+                    st.session_state.last_scored_id = st.session_state.display_alpha
                     st.rerun()
             else:
-                st.error(f"WRONG. The actual count was {real_count}.")
-                st.session_state.streak = 0
-                st.rerun()
+                st.error(f"WRONG. The actual count was {real_count} (You guessed {st.session_state.last_guess}).")
+                if st.session_state.streak > 0:
+                    st.session_state.streak = 0
+                    st.rerun()
 
-            # Display solutions immediately in the right column
-            if not st.session_state.is_phony:
+            # Solution reveal logic
+            if not st.session_state.is_phony and st.session_state.current_solutions:
                 for sol in st.session_state.current_solutions:
                     with st.expander(f"📖 {sol['word']}", expanded=True):
                         st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
                         st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
                         st.write(f"*{sol['def']}*")
             else:
-                st.info("This rack was a PHONY.")
+                st.info("Rack was a PHONY.")
