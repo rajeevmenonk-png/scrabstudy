@@ -40,39 +40,62 @@ components.html(
 
 st.markdown("""
     <style>
+        /* Sidebar layout */
         [data-testid="stSidebar"] { min-width: 250px; }
-        .stMetric { background-color: #1e2130; padding: 15px; border-radius: 10px; border: 1px solid #3e445b; }
         
-        /* Solid "Square" Button Styling */
+        /* Main Tile Display */
+        .alphagram-text {
+            text-align: center; 
+            letter-spacing: 15px; 
+            color: #f1c40f; 
+            font-size: 4.5rem; 
+            font-weight: 800;
+            margin: 0px 0px 10px 0px;
+            padding: 0;
+        }
+
+        /* GRID FOR BUTTONS - Forces Square-ish shape */
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        /* Target all buttons within the grid container */
         div.stButton > button {
-            width: 100% !important;
-            height: 100px !important;  /* Taller buttons */
-            border-radius: 12px !important;
-            font-size: 1.8rem !important; /* Huge numbers */
-            font-weight: 800 !important;
-            background-color: #262730;
-            border: 2px solid #4a4a4a;
-            transition: all 0.2s;
-            margin-bottom: 10px;
-        }
-        div.stButton > button:hover {
-            border-color: #f1c40f;
-            color: #f1c40f;
-            transform: scale(1.02);
+            height: 80px !important;
+            font-size: 1.8rem !important;
+            font-weight: 900 !important;
+            border-radius: 8px !important;
+            border: 2px solid #555 !important;
+            background-color: #262730 !important;
+            transition: 0.2s;
         }
         
-        /* Distinct style for Control Buttons (Next/Skip) */
-        div.stButton > button[kind="primary"] {
+        div.stButton > button:hover {
+            border-color: #f1c40f !important;
+            color: #f1c40f !important;
+            background-color: #333 !important;
+        }
+
+        /* Special sizing for Control Buttons */
+        .control-area { max-width: 400px; margin: 20px auto; }
+        .next-btn button {
             background-color: #27ae60 !important;
             height: 60px !important;
-            font-size: 1.2rem !important;
+            font-size: 1.3rem !important;
+            color: white !important;
             border: none !important;
         }
-        .skip-btn > div > button {
+        .skip-btn button {
             background-color: #c0392b !important;
-            height: 60px !important;
-            font-size: 1.2rem !important;
+            height: 50px !important;
+            font-size: 1rem !important;
             color: white !important;
+            border: none !important;
+            margin-top: 10px;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -105,7 +128,6 @@ if uploaded_file:
         st.session_state.master_data, st.session_state.alpha_map = load_lexicon(uploaded_file.getvalue())
         st.session_state.valid_alphas = set(st.session_state.alpha_map.keys())
 
-    # Wrap filters in a form so changing them doesn't "answer" the question
     with st.sidebar.form("filter_form"):
         st.header("Quiz Filters")
         w_len = st.number_input("Word Length", 2, 15, 7)
@@ -115,12 +137,15 @@ if uploaded_file:
         c3, c4 = st.columns(2)
         min_play = c3.number_input("Min Play", 0, 2000, 0)
         max_play = c4.number_input("Max Play", 0, 2000, 1000)
-        submit_filters = st.form_submit_button("Apply Filters & Reset")
-        
-        if submit_filters or not st.session_state.filtered_alphas:
+        if st.form_submit_button("Apply & Reset"):
             st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(min_p <= w['prob'] <= max_p and min_play <= w['play'] <= max_play for w in words)]
             st.session_state.needs_new_rack = True
+            st.rerun()
+
+    if not st.session_state.filtered_alphas and 'master_data' in st.session_state:
+        st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
+                if len(a) == 7 and any(0 <= w['prob'] <= 40000 and 0 <= w['play'] <= 1000 for w in words)]
 
     st.session_state.show_defs = st.sidebar.checkbox("Show Definitions", value=True)
 
@@ -146,7 +171,7 @@ if uploaded_file:
             rack = "".join(sorted(arr))
 
         if st.session_state.is_phony:
-            for _ in range(20): # Try to find a real phony
+            for _ in range(20):
                 v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
                 arr = list(rack); idx = random.randint(0, len(arr)-1)
                 if arr[idx] == '?': continue
@@ -154,11 +179,10 @@ if uploaded_file:
                 test_rack = "".join(sorted(arr))
                 sols = find_all_blank_anagrams(test_rack) if '?' in test_rack else st.session_state.alpha_map.get(test_rack, [])
                 if not sols:
-                    st.session_state.display_alpha, st.session_state.current_solutions = test_rack, []
+                    rack = test_rack
                     break
-        else:
-            st.session_state.display_alpha = rack
-            st.session_state.current_solutions = find_all_blank_anagrams(rack) if '?' in rack else st.session_state.alpha_map.get(rack, [])
+        st.session_state.display_alpha = rack
+        st.session_state.current_solutions = find_all_blank_anagrams(rack) if '?' in rack else st.session_state.alpha_map.get(rack, [])
         st.session_state.answered = False
         st.session_state.needs_new_rack = False
 
@@ -168,26 +192,27 @@ if uploaded_file:
     col1, col2 = st.columns([1, 1], gap="large")
 
     with col1:
-        st.markdown(f"<h1 style='text-align: center; letter-spacing: 15px; color: #f1c40f; font-size: 5rem; margin-top:0;'>{st.session_state.display_alpha}</h1>", unsafe_allow_html=True)
+        st.markdown(f"<div class='alphagram-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
         if not st.session_state.answered:
-            st.write("### How many valid words?")
-            btn_cols = st.columns(3)
+            # Button Grid 0-8 and 8+
+            # We use columns to force the layout since the raw CSS grid is harder to target for Streamlit buttons
+            grid_col1, grid_col2, grid_col3 = st.columns(3)
+            cols = [grid_col1, grid_col2, grid_col3]
             for i in range(10):
-                label = str(i) if i <= 8 else "8+..."
-                # Real label for logic, display label for UI
-                display_label = str(i) if i <= 8 else "8+"
-                if btn_cols[i % 3].button(display_label, key=f"btn_{i}"):
+                label = str(i) if i <= 8 else "8+"
+                if cols[i % 3].button(label, key=f"btn_{i}"):
                     st.session_state.last_guess = i
                     st.session_state.answered = True
                     st.rerun()
         else:
-            st.write("### Result Revealed")
+            st.markdown('<div class="control-area next-btn">', unsafe_allow_html=True)
             if st.button("Next Rack (Enter)", use_container_width=True, type="primary"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="skip-btn">', unsafe_allow_html=True)
+        st.markdown('<div class="control-area skip-btn">', unsafe_allow_html=True)
         if st.button("Skip / Reset Streak", use_container_width=True):
             st.session_state.streak = 0
             st.session_state.needs_new_rack = True
@@ -206,7 +231,7 @@ if uploaded_file:
                     st.session_state.last_scored_id = st.session_state.display_alpha
                     st.rerun()
             else:
-                st.error(f"WRONG. Actual: {real_count} | You guessed: {st.session_state.last_guess if st.session_state.last_guess <= 8 else '8+'}")
+                st.error(f"WRONG. Actual: {real_count} | You: {st.session_state.last_guess if st.session_state.last_guess <= 8 else '8+'}")
                 if st.session_state.streak > 0:
                     st.session_state.streak = 0
                     st.rerun()
@@ -217,4 +242,4 @@ if uploaded_file:
                     st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
                     st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
             if not st.session_state.current_solutions:
-                st.info("Rack was a PHONY (Zero solutions).")
+                st.info("Rack was a PHONY.")
