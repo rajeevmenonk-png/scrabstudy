@@ -1,21 +1,33 @@
 import streamlit as st
 import pandas as pd
 import random
+import re
 
 st.set_page_config(page_title="Scrabble Study Pro", layout="centered")
 
 @st.cache_data
 def load_data(uploaded_file):
-    # Standard Scrabble list columns: Word | Definition | Front Hooks | Back Hooks | Prob | Extra
+    # Parsing based on: Word | Definition | Front Hooks | Back Hooks | Prob | Extra
     cols = ['Word', 'Definition', 'Front_Hooks', 'Back_Hooks', 'Prob', 'Extra']
     
-    # Fix: Added encoding='latin-1' to handle special characters like '·'
+    # Read with latin-1 to handle the '·' dot and use engine='python' for better tab handling
     df = pd.read_csv(uploaded_file, sep='\t', names=cols, header=None, engine='python', encoding='latin-1')
     
-    # Cleaning: remove dots and whitespace to ensure strict length counts
-    df['Word'] = df['Word'].astype(str).str.replace('·', '').str.strip().str.upper()
+    # AGGRESSIVE CLEANING:
+    # 1. Convert to string and uppercase
+    # 2. Remove the middle dot '·'
+    # 3. Remove any non-alphabetic characters (removes hidden spaces, \r, \n, tabs)
+    df['Word'] = df['Word'].astype(str).str.replace('·', '', regex=False)
+    df['Word'] = df['Word'].str.replace(r'[^A-Z]', '', regex=True).str.strip()
+    
+    # Clean hooks and definitions
     df['Front_Hooks'] = df['Front_Hooks'].fillna('').astype(str).str.strip()
     df['Back_Hooks'] = df['Back_Hooks'].fillna('').astype(str).str.strip()
+    df['Definition'] = df['Definition'].fillna('').astype(str).str.strip()
+    
+    # Ensure Probability is a number
+    df['Prob'] = pd.to_numeric(df['Prob'], errors='coerce').fillna(999999)
+    
     return df
 
 def generate_phony(real_word, valid_set):
@@ -49,7 +61,13 @@ if uploaded_file:
     # --- Quiz Settings ---
     st.sidebar.header("Settings")
     w_len = st.sidebar.number_input("Word Length", min_value=2, max_value=15, value=5)
-    max_p = st.sidebar.number_input("Max Probability Rank", value=15000)
+    max_p = st.sidebar.number_input("Max Probability Rank", value=50000)
+
+    # Diagnostic Info (Expandable)
+    with st.sidebar.expander("Diagnostic Info"):
+        sample_words = df[df['Word'].str.len() == w_len].head(5)
+        st.write(f"Total words found for length {w_len}: {len(df[df['Word'].str.len() == w_len])}")
+        st.write("Sample words matching length:", sample_words['Word'].tolist())
 
     if 'display_word' not in st.session_state:
         st.session_state.display_word = None
@@ -58,11 +76,11 @@ if uploaded_file:
         st.session_state.current_data = None
 
     def get_new_word():
-        # Strict length filtering (fixes the 6-letter word issue)
+        # Filtering logic
         pool = df[(df['Word'].str.len() == w_len) & (df['Prob'] <= max_p)]
         
         if pool.empty:
-            st.warning("No words found! Try a higher Probability Rank.")
+            st.warning(f"No {w_len}-letter words found with Prob <= {max_p}. Check the Diagnostic Info in the sidebar.")
             return
 
         target = pool.sample(n=1).iloc[0]
@@ -108,13 +126,12 @@ if uploaded_file:
                 st.error("Incorrect!")
 
             if st.session_state.is_phony:
-                # Feedback for phonies doesn't show definition/hooks
                 st.info(f"'{st.session_state.display_word}' is a PHONY.")
             else:
                 d = st.session_state.current_data
                 st.markdown("---")
                 st.write(f"**Definition:** {d['Definition']}")
-                # Updated hook display: [Front] ACTUAL_WORD [Back]
+                # Updated hook display: [F] WORD [B]
                 f = f"[{d['Front_Hooks']}]" if d['Front_Hooks'] else "[ ]"
                 b = f"[{d['Back_Hooks']}]" if d['Back_Hooks'] else "[ ]"
                 st.markdown(f"**Hooks:** `{f}` **{d['Word']}** `{b}`")
