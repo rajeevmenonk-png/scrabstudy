@@ -17,7 +17,7 @@ for key, val in state_keys.items():
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
-# --- 2. KEYBOARD & UI STYLING ---
+# --- 2. KEYBOARD & FIXED UI STYLING ---
 components.html(
     """
     <script>
@@ -40,67 +40,66 @@ components.html(
 
 st.markdown("""
     <style>
-        /* Sidebar layout */
-        [data-testid="stSidebar"] { min-width: 250px; }
+        /* Force app to stay compact */
+        .block-container { padding-top: 1rem; padding-bottom: 0rem; }
         
-        /* Main Tile Display */
+        /* Sidebar Slimming */
+        [data-testid="stSidebar"] { min-width: 220px; max-width: 260px; }
+        
+        /* The Alphagram "Rack" */
         .alphagram-text {
             text-align: center; 
-            letter-spacing: 15px; 
+            letter-spacing: 10px; 
             color: #f1c40f; 
-            font-size: 4.5rem; 
-            font-weight: 800;
-            margin: 0px 0px 10px 0px;
-            padding: 0;
+            font-size: 3.5rem; 
+            font-weight: 900;
+            margin: 0;
+            padding: 10px 0;
+            line-height: 1;
         }
 
-        /* GRID FOR BUTTONS - Forces Square-ish shape */
-        .button-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            max-width: 400px;
-            margin: 0 auto;
-        }
-
-        /* Target all buttons within the grid container */
-        div.stButton > button {
-            height: 80px !important;
-            font-size: 1.8rem !important;
+        /* GRID FOR CHUNKY SQUARE TILES */
+        .stButton > button {
+            aspect-ratio: 1 / 1 !important; /* Forces Square */
+            width: 100% !important;
+            font-size: 2rem !important;
             font-weight: 900 !important;
-            border-radius: 8px !important;
-            border: 2px solid #555 !important;
+            border-radius: 10px !important;
             background-color: #262730 !important;
-            transition: 0.2s;
+            border: 2px solid #555 !important;
+            box-shadow: 0 4px 0 #111;
+            transition: 0.1s;
         }
         
-        div.stButton > button:hover {
-            border-color: #f1c40f !important;
-            color: #f1c40f !important;
-            background-color: #333 !important;
+        div.stButton > button:active {
+            transform: translateY(4px);
+            box-shadow: none;
         }
 
-        /* Special sizing for Control Buttons */
-        .control-area { max-width: 400px; margin: 20px auto; }
-        .next-btn button {
+        /* Next/Skip Button Styling */
+        .next-btn-container button {
             background-color: #27ae60 !important;
+            aspect-ratio: auto !important;
             height: 60px !important;
-            font-size: 1.3rem !important;
+            font-size: 1.2rem !important;
             color: white !important;
             border: none !important;
+            box-shadow: 0 4px 0 #1e8449 !important;
         }
-        .skip-btn button {
+        
+        .skip-btn-container button {
             background-color: #c0392b !important;
-            height: 50px !important;
-            font-size: 1rem !important;
+            aspect-ratio: auto !important;
+            height: 45px !important;
+            font-size: 0.9rem !important;
             color: white !important;
             border: none !important;
-            margin-top: 10px;
+            box-shadow: 0 4px 0 #922b21 !important;
         }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. DATA PARSING ---
+# --- 3. DATA & LOGIC ---
 @st.cache_data
 def load_lexicon(file_content):
     data, alphagram_map = [], defaultdict(list)
@@ -111,8 +110,7 @@ def load_lexicon(file_content):
         word = re.sub(r'[^A-Z]', '', parts[0].replace('·', '').upper())
         if not word: continue
         d = {'word': word, 'def': parts[1].strip() if len(parts) > 1 else "",
-             'f': parts[2].strip() if len(parts) > 2 else "",
-             'b': parts[3].strip() if len(parts) > 3 else "",
+             'f': parts[2].strip() if len(parts) > 2 else "", 'b': parts[3].strip() if len(parts) > 3 else "",
              'prob': int(parts[4]) if len(parts) > 4 and parts[4].strip().isdigit() else 999999,
              'play': int(parts[5]) if len(parts) > 5 and parts[5].strip().isdigit() else 0}
         alpha = "".join(sorted(word))
@@ -129,27 +127,23 @@ if uploaded_file:
         st.session_state.valid_alphas = set(st.session_state.alpha_map.keys())
 
     with st.sidebar.form("filter_form"):
-        st.header("Quiz Filters")
-        w_len = st.number_input("Word Length", 2, 15, 7)
+        w_len = st.number_input("Len", 2, 15, 7)
         c1, c2 = st.columns(2)
-        min_p = c1.number_input("Min Prob", 0, 100000, 0)
-        max_p = c2.number_input("Max Prob", 0, 100000, 40000)
+        min_p, max_p = c1.number_input("MinP", 0, 100000, 0), c2.number_input("MaxP", 0, 100000, 40000)
         c3, c4 = st.columns(2)
-        min_play = c3.number_input("Min Play", 0, 2000, 0)
-        max_play = c4.number_input("Max Play", 0, 2000, 1000)
-        if st.form_submit_button("Apply & Reset"):
+        min_play, max_play = c3.number_input("MinPL", 0, 2000, 0), c4.number_input("MaxPL", 0, 2000, 1000)
+        if st.form_submit_button("Apply Filters"):
             st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(min_p <= w['prob'] <= max_p and min_play <= w['play'] <= max_play for w in words)]
             st.session_state.needs_new_rack = True
             st.rerun()
 
     if not st.session_state.filtered_alphas and 'master_data' in st.session_state:
-        st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
-                if len(a) == 7 and any(0 <= w['prob'] <= 40000 and 0 <= w['play'] <= 1000 for w in words)]
+        st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() if len(a) == 7]
 
     st.session_state.show_defs = st.sidebar.checkbox("Show Definitions", value=True)
 
-    # --- 5. LOGIC ---
+    # --- 5. GAME LOGIC ---
     def find_all_blank_anagrams(rack):
         results, seen = [], set()
         base = rack.replace('?', '')
@@ -179,10 +173,8 @@ if uploaded_file:
                 test_rack = "".join(sorted(arr))
                 sols = find_all_blank_anagrams(test_rack) if '?' in test_rack else st.session_state.alpha_map.get(test_rack, [])
                 if not sols:
-                    rack = test_rack
-                    break
-        st.session_state.display_alpha = rack
-        st.session_state.current_solutions = find_all_blank_anagrams(rack) if '?' in rack else st.session_state.alpha_map.get(rack, [])
+                    rack = test_rack; break
+        st.session_state.display_alpha, st.session_state.current_solutions = rack, (find_all_blank_anagrams(rack) if '?' in rack else st.session_state.alpha_map.get(rack, []))
         st.session_state.answered = False
         st.session_state.needs_new_rack = False
 
@@ -195,24 +187,23 @@ if uploaded_file:
         st.markdown(f"<div class='alphagram-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
         if not st.session_state.answered:
-            # Button Grid 0-8 and 8+
-            # We use columns to force the layout since the raw CSS grid is harder to target for Streamlit buttons
-            grid_col1, grid_col2, grid_col3 = st.columns(3)
-            cols = [grid_col1, grid_col2, grid_col3]
+            # 3x3 + 1 grid for chunky square look
+            g1, g2, g3 = st.columns(3)
+            rows = [g1, g2, g3]
             for i in range(10):
                 label = str(i) if i <= 8 else "8+"
-                if cols[i % 3].button(label, key=f"btn_{i}"):
+                if rows[i % 3].button(label, key=f"btn_{i}"):
                     st.session_state.last_guess = i
                     st.session_state.answered = True
                     st.rerun()
         else:
-            st.markdown('<div class="control-area next-btn">', unsafe_allow_html=True)
+            st.markdown('<div class="next-btn-container">', unsafe_allow_html=True)
             if st.button("Next Rack (Enter)", use_container_width=True, type="primary"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="control-area skip-btn">', unsafe_allow_html=True)
+        st.markdown('<div class="skip-btn-container">', unsafe_allow_html=True)
         if st.button("Skip / Reset Streak", use_container_width=True):
             st.session_state.streak = 0
             st.session_state.needs_new_rack = True
@@ -225,21 +216,16 @@ if uploaded_file:
             correct = (st.session_state.last_guess == real_count) or (st.session_state.last_guess == 9 and real_count > 8)
             
             if correct:
-                st.success(f"CORRECT! Total: {real_count}")
+                st.success(f"CORRECT! ({real_count})")
                 if st.session_state.last_scored_id != st.session_state.display_alpha:
-                    st.session_state.streak += 1
-                    st.session_state.last_scored_id = st.session_state.display_alpha
-                    st.rerun()
+                    st.session_state.streak += 1; st.session_state.last_scored_id = st.session_state.display_alpha; st.rerun()
             else:
                 st.error(f"WRONG. Actual: {real_count} | You: {st.session_state.last_guess if st.session_state.last_guess <= 8 else '8+'}")
-                if st.session_state.streak > 0:
-                    st.session_state.streak = 0
-                    st.rerun()
+                if st.session_state.streak > 0: st.session_state.streak = 0; st.rerun()
 
             for sol in sorted(st.session_state.current_solutions, key=lambda x: x['word']):
                 with st.expander(f"📖 {sol['word']}", expanded=True):
                     if st.session_state.show_defs: st.write(f"*{sol['def']}*")
                     st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
-                    st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
-            if not st.session_state.current_solutions:
-                st.info("Rack was a PHONY.")
+                    st.caption(f"Prob: {sol['prob']} | PL: {sol['play']}")
+            if not st.session_state.current_solutions: st.info("Rack was a PHONY.")
