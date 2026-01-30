@@ -3,10 +3,21 @@ import random
 import re
 from collections import defaultdict
 
-# 1. INITIALIZATION
-for key in ['streak', 'display_alpha', 'answered', 'current_solutions', 'is_phony']:
+# 1. INITIALIZATION (Fixes the AttributeError)
+# We initialize every single variable the app uses at the very top.
+state_defaults = {
+    'streak': 0,
+    'display_alpha': None,
+    'answered': False,
+    'current_solutions': [],
+    'is_phony': False,
+    'last_guess': 0,
+    'last_scored': None
+}
+
+for key, value in state_defaults.items():
     if key not in st.session_state:
-        st.session_state[key] = 0 if key == 'streak' else (None if key == 'display_alpha' else (False if key in ['answered', 'is_phony'] else []))
+        st.session_state[key] = value
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
@@ -16,6 +27,8 @@ def parse_scrabble_file(uploaded_file):
     for line in content.splitlines():
         parts = line.split('\t')
         if not parts: continue
+        
+        # Aggressive cleaning for strict word counts
         raw_word = parts[0].replace('·', '').upper()
         clean_word = re.sub(r'[^A-Z]', '', raw_word)
         if not clean_word: continue
@@ -26,10 +39,13 @@ def parse_scrabble_file(uploaded_file):
         except: prob, play = 999999, 0
             
         alpha = "".join(sorted(clean_word))
-        word_info = {'word': clean_word, 'def': parts[1].strip() if len(parts) > 1 else "", 
-                     'f': parts[2].strip() if len(parts) > 2 else "", 
-                     'b': parts[3].strip() if len(parts) > 3 else "", 
-                     'prob': prob, 'play': play}
+        word_info = {
+            'word': clean_word, 
+            'def': parts[1].strip() if len(parts) > 1 else "", 
+            'f': parts[2].strip() if len(parts) > 2 else "", 
+            'b': parts[3].strip() if len(parts) > 3 else "", 
+            'prob': prob, 'play': play
+        }
         data.append(word_info)
         alphagram_map[alpha].append(word_info)
     return data, alphagram_map
@@ -64,7 +80,7 @@ if uploaded_file:
     filtered = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(w['prob'] <= max_p and w['play'] >= min_play for w in words)]
 
-    # Layout: Left for Input, Right for Result/Solutions
+    # Layout: Split Screen (Left for Input, Right for Result)
     col_main, col_res = st.columns([1, 1], gap="large")
 
     with col_main:
@@ -79,7 +95,8 @@ if uploaded_file:
                 else:
                     st.session_state.current_solutions = st.session_state.alpha_map[base_alpha]
                     if w_len in [7, 8]:
-                        arr = list(base_alpha); arr[random.randint(0, len(arr)-1)] = '?'
+                        arr = list(base_alpha)
+                        arr[random.randint(0, len(arr)-1)] = '?'
                         st.session_state.display_alpha = "".join(sorted(arr))
                     else: st.session_state.display_alpha = base_alpha
                 st.session_state.answered = False
@@ -92,11 +109,13 @@ if uploaded_file:
                 st.rerun()
 
         if st.session_state.display_alpha:
-            st.markdown(f"<h1 style='text-align: center; letter-spacing: 15px; color: #f1c40f; font-size: 60px;'>{st.session_state.display_alpha}</h1>", unsafe_allow_html=True)
+            # Alphagram Font Size Reduced for No-Scroll Layout
+            st.markdown(f"<h2 style='text-align: center; letter-spacing: 12px; color: #f1c40f; margin-top: 10px;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
             
+            # Form enables the "Enter" key to submit
             with st.form("guess_form", clear_on_submit=False):
                 user_guess = st.number_input("How many valid words?", min_value=0, step=1)
-                submit = st.form_submit_button("Submit (Enter)", use_container_width=True)
+                submit = st.form_submit_button("Check Answer (Enter)", use_container_width=True)
                 if submit:
                     st.session_state.answered = True
                     st.session_state.last_guess = user_guess
@@ -106,7 +125,7 @@ if uploaded_file:
             real_count = len(st.session_state.current_solutions)
             if st.session_state.last_guess == real_count:
                 st.success(f"CORRECT! There are {real_count} word(s).")
-                if st.session_state.get('last_scored') != st.session_state.display_alpha:
+                if st.session_state.last_scored != st.session_state.display_alpha:
                     st.session_state.streak += 1
                     st.session_state.last_scored = st.session_state.display_alpha
                     st.rerun()
@@ -115,6 +134,7 @@ if uploaded_file:
                 st.session_state.streak = 0
                 st.rerun()
 
+            # Display solutions immediately in the right column
             if not st.session_state.is_phony:
                 for sol in st.session_state.current_solutions:
                     with st.expander(f"📖 {sol['word']}", expanded=True):
