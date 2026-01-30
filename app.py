@@ -11,7 +11,8 @@ state_defaults = {
     'current_solutions': [],
     'is_phony': False,
     'last_guess': 0,
-    'last_scored_id': None
+    'last_scored_id': None,
+    'needs_new_rack': True
 }
 
 for key, value in state_defaults.items():
@@ -29,20 +30,15 @@ def parse_scrabble_file(uploaded_file):
         raw_word = parts[0].replace('·', '').upper()
         clean_word = re.sub(r'[^A-Z]', '', raw_word)
         if not clean_word: continue
-        
         try:
             prob = int(parts[4].strip()) if len(parts) > 4 and parts[4].strip().isdigit() else 999999
             play = int(parts[5].strip()) if len(parts) > 5 and parts[5].strip().isdigit() else 0
         except: prob, play = 999999, 0
-            
         alpha = "".join(sorted(clean_word))
-        word_info = {
-            'word': clean_word, 
-            'def': parts[1].strip() if len(parts) > 1 else "", 
-            'f': parts[2].strip() if len(parts) > 2 else "", 
-            'b': parts[3].strip() if len(parts) > 3 else "", 
-            'prob': prob, 'play': play
-        }
+        word_info = {'word': clean_word, 'def': parts[1].strip() if len(parts) > 1 else "", 
+                     'f': parts[2].strip() if len(parts) > 2 else "", 
+                     'b': parts[3].strip() if len(parts) > 3 else "", 
+                     'prob': prob, 'play': play}
         data.append(word_info)
         alphagram_map[alpha].append(word_info)
     return data, alphagram_map
@@ -73,77 +69,76 @@ if uploaded_file:
     st.sidebar.divider()
     st.sidebar.metric("Current Streak", st.session_state.streak)
 
-    # Filtering Pool
     filtered = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(w['prob'] <= max_p and w['play'] >= min_play for w in words)]
 
     col_main, col_res = st.columns([1, 1], gap="large")
 
     with col_main:
+        def trigger_new_rack():
+            st.session_state.is_phony = random.choice([True, False])
+            base_alpha = random.choice(filtered)
+            if st.session_state.is_phony:
+                st.session_state.display_alpha = generate_phony(base_alpha, st.session_state.valid_alphas)
+                st.session_state.current_solutions = []
+            else:
+                st.session_state.current_solutions = st.session_state.alpha_map[base_alpha]
+                if w_len in [7, 8]:
+                    arr = list(base_alpha); arr[random.randint(0, len(arr)-1)] = '?'
+                    st.session_state.display_alpha = "".join(sorted(arr))
+                else: st.session_state.display_alpha = base_alpha
+            st.session_state.answered = False
+            st.session_state.needs_new_rack = False
+
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("New Rack", use_container_width=True):
-                st.session_state.is_phony = random.choice([True, False])
-                base_alpha = random.choice(filtered)
-                if st.session_state.is_phony:
-                    st.session_state.display_alpha = generate_phony(base_alpha, st.session_state.valid_alphas)
-                    st.session_state.current_solutions = []
-                else:
-                    st.session_state.current_solutions = st.session_state.alpha_map[base_alpha]
-                    if w_len in [7, 8]:
-                        arr = list(base_alpha)
-                        arr[random.randint(0, len(arr)-1)] = '?'
-                        st.session_state.display_alpha = "".join(sorted(arr))
-                    else: st.session_state.display_alpha = base_alpha
-                st.session_state.answered = False
+            # If we've answered, focusing this button allows "Enter" to go to Next Rack
+            if st.button("New Rack", use_container_width=True, key="new_rack_btn") or st.session_state.needs_new_rack:
+                trigger_new_rack()
                 st.rerun()
         
         with c2:
             if st.button("Skip Rack", use_container_width=True):
                 st.session_state.streak = 0
-                st.session_state.display_alpha = None
+                st.session_state.needs_new_rack = True
                 st.rerun()
 
         if st.session_state.display_alpha:
-            st.markdown(f"<h2 style='text-align: center; letter-spacing: 12px; color: #f1c40f; margin-top: 5px;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='text-align: center; letter-spacing: 12px; color: #f1c40f;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
             
-            # Instruction text moved permanently outside the box
             st.write("### How many valid words?")
-            st.caption("Press Enter to Submit")
             
+            # Submission Logic
             with st.form("guess_form", clear_on_submit=False):
-                # label is now hidden inside the widget to avoid duplication
-                user_guess = st.number_input("Input count:", min_value=0, step=1, label_visibility="collapsed")
-                submit = st.form_submit_button("Check Answer", use_container_width=True)
+                # Use value=st.session_state.last_guess to prevent reset during the first enter
+                input_guess = st.number_input("Input count:", min_value=0, step=1, label_visibility="collapsed")
+                submit = st.form_submit_button("Check Answer (Enter)", use_container_width=True)
                 
                 if submit:
+                    st.session_state.last_guess = input_guess
                     st.session_state.answered = True
-                    st.session_state.last_guess = user_guess
 
     with col_res:
         if st.session_state.answered:
             real_count = len(st.session_state.current_solutions)
             
-            # VERIFIED FEEDBACK LOGIC
             if st.session_state.last_guess == real_count:
-                st.success(f"CORRECT! There are {real_count} word(s).")
-                # Ensure streak only updates once for this specific rack
+                st.success(f"CORRECT! ({real_count} solutions)")
                 if st.session_state.last_scored_id != st.session_state.display_alpha:
                     st.session_state.streak += 1
                     st.session_state.last_scored_id = st.session_state.display_alpha
-                    st.rerun()
+                    # Note: We don't rerun here to allow the user to see the result 
+                    # before the second "Enter" (Next Rack) happens.
             else:
-                st.error(f"WRONG. The actual count was {real_count} (You guessed {st.session_state.last_guess}).")
+                st.error(f"WRONG. Actual: {real_count} | Your Guess: {st.session_state.last_guess}")
                 if st.session_state.streak > 0:
                     st.session_state.streak = 0
                     st.rerun()
 
-            # Solution reveal logic
             if not st.session_state.is_phony and st.session_state.current_solutions:
                 for sol in st.session_state.current_solutions:
                     with st.expander(f"📖 {sol['word']}", expanded=True):
                         st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
                         st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
-                        st.write(f"*{sol['def']}*")
             else:
                 st.info("Rack was a PHONY.")
