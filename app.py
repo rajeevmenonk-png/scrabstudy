@@ -3,7 +3,7 @@ import random
 import re
 from collections import defaultdict
 
-# 1. PERMANENT STATE INITIALIZATION
+# 1. INITIALIZATION - Always at the very top
 state_defaults = {
     'streak': 0,
     'display_alpha': None,
@@ -21,6 +21,7 @@ for key, value in state_defaults.items():
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
+# --- DATA PARSING ---
 def parse_scrabble_file(uploaded_file):
     data, alphagram_map = [], defaultdict(list)
     content = uploaded_file.read().decode("latin-1")
@@ -53,7 +54,9 @@ def generate_phony(real_alpha, valid_alphas):
         if new_alpha not in valid_alphas: return new_alpha
     return "".join(random.sample(cons, len(real_alpha)))
 
-# --- UI SETUP ---
+# --- SIDEBAR (Streak at Top) ---
+st.sidebar.metric("Current Streak", st.session_state.streak)
+st.sidebar.divider()
 uploaded_file = st.sidebar.file_uploader("Upload Lexicon (.txt)", type="txt")
 
 if uploaded_file:
@@ -61,13 +64,11 @@ if uploaded_file:
         st.session_state.master_data, st.session_state.alpha_map = parse_scrabble_file(uploaded_file)
         st.session_state.valid_alphas = set(st.session_state.alpha_map.keys())
 
-    # Sidebar
-    st.sidebar.header("Settings")
+    # Settings
+    st.sidebar.header("Quiz Settings")
     w_len = st.sidebar.number_input("Length", 2, 15, 5)
     max_p = st.sidebar.number_input("Max Prob Rank", value=40000)
     min_play = st.sidebar.number_input("Min Playability", value=0)
-    st.sidebar.divider()
-    st.sidebar.metric("Current Streak", st.session_state.streak)
 
     filtered = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(w['prob'] <= max_p and w['play'] >= min_play for w in words)]
@@ -76,6 +77,7 @@ if uploaded_file:
 
     with col_main:
         def trigger_new_rack():
+            if not filtered: return
             st.session_state.is_phony = random.choice([True, False])
             base_alpha = random.choice(filtered)
             if st.session_state.is_phony:
@@ -90,55 +92,62 @@ if uploaded_file:
             st.session_state.answered = False
             st.session_state.needs_new_rack = False
 
-        c1, c2 = st.columns(2)
-        with c1:
-            # If we've answered, focusing this button allows "Enter" to go to Next Rack
-            if st.button("New Rack", use_container_width=True, key="new_rack_btn") or st.session_state.needs_new_rack:
-                trigger_new_rack()
-                st.rerun()
-        
-        with c2:
-            if st.button("Skip Rack", use_container_width=True):
-                st.session_state.streak = 0
-                st.session_state.needs_new_rack = True
-                st.rerun()
+        if st.session_state.needs_new_rack:
+            trigger_new_rack()
+            st.rerun()
 
+        # Rack Display
         if st.session_state.display_alpha:
-            st.markdown(f"<h2 style='text-align: center; letter-spacing: 12px; color: #f1c40f;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='text-align: center; letter-spacing: 12px; color: #f1c40f; margin-top: 0px;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
             
-            st.write("### How many valid words?")
-            
-            # Submission Logic
-            with st.form("guess_form", clear_on_submit=False):
-                # Use value=st.session_state.last_guess to prevent reset during the first enter
-                input_guess = st.number_input("Input count:", min_value=0, step=1, label_visibility="collapsed")
-                submit = st.form_submit_button("Check Answer (Enter)", use_container_width=True)
+            # THE SINGLE FORM FOR DOUBLE ENTER
+            with st.form("quiz_form", clear_on_submit=False):
+                if not st.session_state.answered:
+                    st.write("### How many valid words?")
+                    # label is used but visually hidden to ensure state sync
+                    guess = st.number_input("Count", min_value=0, step=1, label_visibility="collapsed")
+                    submit_label = "Check Answer (Enter)"
+                else:
+                    st.write("### Reviewing Results...")
+                    st.info("Press Enter again for the next rack")
+                    submit_label = "Next Rack (Enter)"
+
+                submit = st.form_submit_button(submit_label, use_container_width=True)
                 
                 if submit:
-                    st.session_state.last_guess = input_guess
-                    st.session_state.answered = True
+                    if not st.session_state.answered:
+                        st.session_state.last_guess = guess
+                        st.session_state.answered = True
+                        st.rerun()
+                    else:
+                        st.session_state.needs_new_rack = True
+                        st.rerun()
+
+        if st.button("Skip / Reset Streak", use_container_width=True):
+            st.session_state.streak = 0
+            st.session_state.needs_new_rack = True
+            st.rerun()
 
     with col_res:
         if st.session_state.answered:
             real_count = len(st.session_state.current_solutions)
             
             if st.session_state.last_guess == real_count:
-                st.success(f"CORRECT! ({real_count} solutions)")
+                st.success(f"CORRECT! Total Solutions: {real_count}")
                 if st.session_state.last_scored_id != st.session_state.display_alpha:
                     st.session_state.streak += 1
                     st.session_state.last_scored_id = st.session_state.display_alpha
-                    # Note: We don't rerun here to allow the user to see the result 
-                    # before the second "Enter" (Next Rack) happens.
+                    st.rerun()
             else:
                 st.error(f"WRONG. Actual: {real_count} | Your Guess: {st.session_state.last_guess}")
                 if st.session_state.streak > 0:
                     st.session_state.streak = 0
                     st.rerun()
 
-            if not st.session_state.is_phony and st.session_state.current_solutions:
+            if st.session_state.current_solutions:
                 for sol in st.session_state.current_solutions:
                     with st.expander(f"📖 {sol['word']}", expanded=True):
-                        st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
-                        st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
+                        st.caption(f"Prob: {sol['prob']} | Playability: {sol['play']}")
+                        st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]` ")
             else:
-                st.info("Rack was a PHONY.")
+                st.info("This rack was a PHONY.")
