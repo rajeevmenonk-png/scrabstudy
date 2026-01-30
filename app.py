@@ -2,21 +2,9 @@ import streamlit as st
 import random
 import re
 from collections import defaultdict
+import streamlit.components.v1 as components
 
-# --- 1. SETTINGS & MOBILE CSS ---
-st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
-
-st.markdown("""
-    <style>
-        [data-testid="stSidebar"] { min-width: 180px; max-width: 220px; }
-        .st-emotion-cache-16idsys p { font-size: 13px; }
-        [data-testid="stMetricValue"] { font-size: 22px; }
-        .stButton > button { width: 100%; border-radius: 5px; height: 3.5em; font-weight: bold; }
-        div[data-testid="stVerticalBlock"] > div:nth-child(2) button { background-color: #27ae60; color: white; }
-    </style>
-""", unsafe_allow_html=True)
-
-# --- 2. INITIALIZATION ---
+# --- 1. INITIALIZATION ---
 state_keys = {
     'streak': 0, 'display_alpha': None, 'answered': False, 
     'current_solutions': [], 'is_phony': False, 'last_guess': None, 
@@ -25,6 +13,49 @@ state_keys = {
 for key, val in state_keys.items():
     if key not in st.session_state:
         st.session_state[key] = val
+
+st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
+
+# --- 2. KEYBOARD & UI STYLING ---
+# Injects JavaScript to map keys 0-8 and 9 (for 8+) to Streamlit buttons
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    doc.addEventListener('keydown', function(e) {
+        if (e.key >= '0' && e.key <= '9') {
+            // Find buttons by text content
+            const btns = Array.from(doc.querySelectorAll('button'));
+            const targetLabel = e.key === '9' ? '8+' : e.key;
+            const targetBtn = btns.find(b => b.innerText === targetLabel);
+            if (targetBtn) targetBtn.click();
+        } else if (e.key === 'Enter') {
+            const nextBtn = Array.from(doc.querySelectorAll('button')).find(b => b.innerText.includes('Next Rack'));
+            if (nextBtn) nextBtn.click();
+        }
+    });
+    </script>
+    """,
+    height=0,
+)
+
+st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { min-width: 220px; max-width: 280px; }
+        .stMetric { background-color: #1e2130; padding: 10px; border-radius: 10px; }
+        /* Professional Scrabble-themed buttons */
+        div.stButton > button {
+            width: 100%; border-radius: 8px; height: 3.5em; 
+            font-weight: bold; font-size: 1.1rem;
+            border: 1px solid #4a4a4a; transition: 0.3s;
+        }
+        div.stButton > button:hover { border-color: #f1c40f; color: #f1c40f; }
+        /* Highlight the Next Rack button */
+        div[data-testid="stVerticalBlock"] > div:nth-child(2) button {
+            background-color: #27ae60 !important; color: white !important; border: none !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- 3. DATA PARSING ---
 @st.cache_data
@@ -36,19 +67,17 @@ def load_lexicon(file_content):
         if not parts: continue
         word = re.sub(r'[^A-Z]', '', parts[0].replace('·', '').upper())
         if not word: continue
-        
         d = {'word': word, 'def': parts[1].strip() if len(parts) > 1 else "",
              'f': parts[2].strip() if len(parts) > 2 else "",
              'b': parts[3].strip() if len(parts) > 3 else "",
              'prob': int(parts[4]) if len(parts) > 4 and parts[4].strip().isdigit() else 999999,
              'play': int(parts[5]) if len(parts) > 5 and parts[5].strip().isdigit() else 0}
-        
         alpha = "".join(sorted(word))
         data.append(d); alphagram_map[alpha].append(d)
     return data, alphagram_map
 
 # --- 4. SIDEBAR ---
-st.sidebar.metric("Streak", st.session_state.streak)
+st.sidebar.metric("Current Streak", st.session_state.streak)
 uploaded_file = st.sidebar.file_uploader("Upload Lexicon", type="txt", label_visibility="collapsed")
 
 if uploaded_file:
@@ -56,88 +85,86 @@ if uploaded_file:
         st.session_state.master_data, st.session_state.alpha_map = load_lexicon(uploaded_file.getvalue())
         st.session_state.valid_alphas = set(st.session_state.alpha_map.keys())
 
-    st.sidebar.header("Quiz Settings")
-    w_len = st.sidebar.number_input("Len", 2, 15, 5)
-    max_p = st.sidebar.number_input("Max Prob", value=40000)
-    min_play = st.sidebar.number_input("Min Play", value=0)
+    st.sidebar.header("Quiz Filters")
+    w_len = st.sidebar.number_input("Word Length", 2, 15, 7)
+    
+    col_p1, col_p2 = st.sidebar.columns(2)
+    min_p = col_p1.number_input("Min Prob", value=0)
+    max_p = col_p2.number_input("Max Prob", value=40000)
+    
+    col_pl1, col_pl2 = st.sidebar.columns(2)
+    min_play = col_pl1.number_input("Min Play", value=0)
+    max_play = col_pl2.number_input("Max Play", value=1000)
+    
     st.session_state.show_defs = st.sidebar.checkbox("Show Definitions", value=True)
 
     filtered = [a for a, words in st.session_state.alpha_map.items() 
-                if len(a) == w_len and any(w['prob'] <= max_p and w['play'] >= min_play for w in words)]
+                if len(a) == w_len and any(min_p <= w['prob'] <= max_p and min_play <= w['play'] <= max_play for w in words)]
 
-    # --- 5. BLANK SEARCH LOGIC ---
+    # --- 5. LOGIC ---
     def find_all_blank_anagrams(rack_with_blank):
-        """Finds all valid words by substituting the '?' with A-Z."""
-        results = []
-        seen_words = set()
-        base_letters = rack_with_blank.replace('?', '')
-        
-        for char_code in range(65, 91): # A to Z
-            substituted_alpha = "".join(sorted(base_letters + chr(char_code)))
-            matches = st.session_state.alpha_map.get(substituted_alpha, [])
-            for m in matches:
-                if m['word'] not in seen_words:
-                    results.append(m)
-                    seen_words.add(m['word'])
+        results, seen = [], set()
+        base = rack_with_blank.replace('?', '')
+        for char_code in range(65, 91):
+            sub_alpha = "".join(sorted(base + chr(char_code)))
+            for m in st.session_state.alpha_map.get(sub_alpha, []):
+                if m['word'] not in seen:
+                    results.append(m); seen.add(m['word'])
         return results
 
     def trigger_new():
         if not filtered: return
-        st.session_state.is_phony = random.choice([True, False])
-        base = random.choice(filtered)
+        # 20% Phony Chance
+        st.session_state.is_phony = random.random() < 0.20
+        # 20% Blank Chance (only for lengths that support it, but user requested 20% overall)
+        use_blank = random.random() < 0.20
         
-        # Determine Display Rack
-        if w_len in [7, 8]:
-            arr = list(base)
-            arr[random.randint(0, len(arr)-1)] = '?'
-            st.session_state.display_alpha = "".join(sorted(arr))
-        else:
-            st.session_state.display_alpha = base
+        base = random.choice(filtered)
+        rack = base
+        if use_blank:
+            arr = list(base); arr[random.randint(0, len(arr)-1)] = '?'
+            rack = "".join(sorted(arr))
 
-        # Phony Logic: If phony, ensure NO words can be made (even with a blank)
         if st.session_state.is_phony:
-            # We modify letters until the blank search returns zero
             while True:
                 v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
-                arr = list(st.session_state.display_alpha); idx = random.randint(0, len(arr)-1)
+                arr = list(rack); idx = random.randint(0, len(arr)-1)
                 if arr[idx] == '?': continue
                 arr[idx] = random.choice([x for x in v if x != arr[idx]]) if arr[idx] in v else random.choice([x for x in c if x != arr[idx]])
-                test_alpha = "".join(sorted(arr))
-                potential_solutions = find_all_blank_anagrams(test_alpha) if '?' in test_alpha else st.session_state.alpha_map.get(test_alpha, [])
-                if not potential_solutions:
-                    st.session_state.display_alpha = test_alpha
+                test_rack = "".join(sorted(arr))
+                sols = find_all_blank_anagrams(test_rack) if '?' in test_rack else st.session_state.alpha_map.get(test_rack, [])
+                if not sols:
+                    st.session_state.display_alpha = test_rack
                     st.session_state.current_solutions = []
                     break
         else:
-            # Valid Logic: Find EVERY solution possible with this rack
-            if '?' in st.session_state.display_alpha:
-                st.session_state.current_solutions = find_all_blank_anagrams(st.session_state.display_alpha)
-            else:
-                st.session_state.current_solutions = st.session_state.alpha_map.get(st.session_state.display_alpha, [])
+            st.session_state.display_alpha = rack
+            st.session_state.current_solutions = find_all_blank_anagrams(rack) if '?' in rack else st.session_state.alpha_map.get(rack, [])
         
         st.session_state.answered = False
-        st.session_state.last_guess = None
         st.session_state.needs_new_rack = False
 
     if st.session_state.needs_new_rack: trigger_new()
 
     # --- 6. MAIN LAYOUT ---
-    col1, col2 = st.columns([1, 1], gap="small")
+    col1, col2 = st.columns([1, 1], gap="large")
 
     with col1:
-        st.markdown(f"<h2 style='text-align: center; letter-spacing: 10px; color: #f1c40f; margin-bottom: 0;'>{st.session_state.display_alpha}</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h1 style='text-align: center; letter-spacing: 12px; color: #f1c40f; font-size: 4rem; margin-bottom: 0;'>{st.session_state.display_alpha}</h1>", unsafe_allow_html=True)
         
         if not st.session_state.answered:
             st.write("### How many valid words?")
-            btn_cols = st.columns(3) # Grouped for 0-8 range
-            for i in range(10): # 0 to 9 (9 represents 8+)
+            btn_cols = st.columns(3)
+            # Buttons 0-8 and 8+
+            for i in range(10):
                 label = str(i) if i <= 8 else "8+"
                 if btn_cols[i % 3].button(label, key=f"btn_{i}"):
                     st.session_state.last_guess = i
                     st.session_state.answered = True
                     st.rerun()
         else:
-            if st.button("Next Rack (Enter)", use_container_width=True, type="primary", key="next_btn"):
+            st.write("### Review Results")
+            if st.button("Next Rack (Enter)", use_container_width=True, type="primary"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
         
@@ -149,29 +176,22 @@ if uploaded_file:
     with col2:
         if st.session_state.answered:
             real_count = len(st.session_state.current_solutions)
-            is_correct = (st.session_state.last_guess == real_count) or (st.session_state.last_guess == 9 and real_count > 8)
+            correct = (st.session_state.last_guess == real_count) or (st.session_state.last_guess == 9 and real_count > 8)
             
-            if is_correct:
-                st.success(f"CORRECT! Total Solutions: {real_count}")
+            if correct:
+                st.success(f"CORRECT! Total: {real_count}")
                 if st.session_state.last_scored_id != st.session_state.display_alpha:
                     st.session_state.streak += 1
                     st.session_state.last_scored_id = st.session_state.display_alpha
                     st.rerun()
             else:
-                display_guess = str(st.session_state.last_guess) if st.session_state.last_guess <= 8 else "8+"
-                st.error(f"WRONG. Actual: {real_count} | You: {display_guess}")
+                st.error(f"WRONG. Actual: {real_count} | Your Guess: {st.session_state.last_guess if st.session_state.last_guess <= 8 else '8+'}")
                 if st.session_state.streak > 0:
                     st.session_state.streak = 0
                     st.rerun()
 
-            if st.session_state.current_solutions:
-                # Sort alphabetically for better study review
-                sorted_solutions = sorted(st.session_state.current_solutions, key=lambda x: x['word'])
-                for sol in sorted_solutions:
-                    with st.expander(f"📖 {sol['word']}", expanded=True):
-                        if st.session_state.show_defs:
-                            st.write(f"*{sol['def']}*")
-                        st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
-                        st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
-            else:
-                st.info("Rack was a PHONY.")
+            for sol in sorted(st.session_state.current_solutions, key=lambda x: x['word']):
+                with st.expander(f"📖 {sol['word']}", expanded=True):
+                    if st.session_state.show_defs: st.write(f"*{sol['def']}*")
+                    st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
+                    st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
