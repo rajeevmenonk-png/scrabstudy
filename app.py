@@ -18,6 +18,7 @@ for key, val in state_keys.items():
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
 # --- 2. KEYBOARD LISTENER ---
+# Maps keys 0-8 and 9 (for 8+) to tiles. Maps Enter to Next Rack.
 components.html(
     """
     <script>
@@ -41,7 +42,6 @@ components.html(
 st.markdown("""
     <style>
         .block-container { padding-top: 1rem; }
-        [data-testid="stSidebar"] { min-width: 220px; max-width: 260px; }
         
         /* THE RACK */
         .alphagram-text {
@@ -50,40 +50,45 @@ st.markdown("""
             color: #f1c40f; 
             font-size: 3.8rem; 
             font-weight: 900;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
         }
 
-        /* BUTTON CONSTRAINTS - Prevents giant buttons */
-        .center-wrap {
-            max-width: 350px;
+        /* TILE GRID (0-8 and 8+) */
+        .tile-wrap {
+            max-width: 320px;
             margin: 0 auto;
         }
-
-        /* NUMBER TILES: Chunky & Square */
-        div.stButton > button {
+        
+        .tile-wrap div.stButton > button {
             aspect-ratio: 1 / 1 !important;
             width: 100% !important;
-            font-size: 2rem !important;
+            font-size: 2.2rem !important;
             font-weight: 900 !important;
-            border-radius: 12px !important;
+            border-radius: 10px !important;
             background-color: #262730 !important;
             border: 2px solid #555 !important;
-            box-shadow: 0 5px 0 #111;
+            box-shadow: 0 4px 0 #111;
             margin-bottom: 5px;
         }
-        
-        div.stButton > button:hover { border-color: #f1c40f !important; color: #f1c40f !important; }
+        .tile-wrap div.stButton > button:hover { border-color: #f1c40f !important; color: #f1c40f !important; }
 
-        /* NEXT & SKIP: Regular size, not giant */
-        .control-btns div.stButton > button {
-            aspect-ratio: auto !important;
-            height: 55px !important;
-            font-size: 1.2rem !important;
-            box-shadow: 0 4px 0 #1e8449;
+        /* CONTROL BUTTONS (Next/Skip) - Forced to be small */
+        .control-wrap {
+            max-width: 200px; /* Small fixed width */
+            margin: 20px auto;
+        }
+        
+        .control-wrap div.stButton > button {
+            height: 45px !important;
+            font-size: 1rem !important;
+            font-weight: 600 !important;
+            border-radius: 8px !important;
+            box-shadow: 0 3px 0 #111;
+            aspect-ratio: auto !important; /* Prevents being square */
         }
 
         .next-btn button { background-color: #27ae60 !important; color: white !important; border: none !important; }
-        .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; box-shadow: 0 4px 0 #922b21 !important; height: 45px !important; font-size: 1rem !important; }
+        .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; margin-top: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -115,11 +120,11 @@ if uploaded_file:
         st.session_state.valid_alphas = set(st.session_state.alpha_map.keys())
 
     with st.sidebar.form("filter_form"):
-        w_len = st.number_input("Len", 2, 15, 7)
+        w_len = st.number_input("Length", 2, 15, 7)
         c1, c2 = st.columns(2)
-        min_p, max_p = c1.number_input("MinP", 0, 100000, 0), c2.number_input("MaxP", 0, 100000, 40000)
+        min_p, max_p = c1.number_input("Min Prob", 0, 100000, 0), c2.number_input("Max Prob", 0, 100000, 40000)
         c3, c4 = st.columns(2)
-        min_play, max_play = c3.number_input("MinPL", 0, 2000, 0), c4.number_input("MaxPL", 0, 2000, 1000)
+        min_play, max_play = c3.number_input("Min Play", 0, 2000, 0), c4.number_input("Max Play", 0, 2000, 1000)
         if st.form_submit_button("Apply Filters"):
             st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
                 if len(a) == w_len and any(min_p <= w['prob'] <= max_p and min_play <= w['play'] <= max_play for w in words)]
@@ -173,9 +178,9 @@ if uploaded_file:
     with col1:
         st.markdown(f"<div class='alphagram-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
-        st.markdown('<div class="center-wrap">', unsafe_allow_html=True)
+        # Tiles: 0-8 and 8+
+        st.markdown('<div class="tile-wrap">', unsafe_allow_html=True)
         if not st.session_state.answered:
-            # 3-column grid for tiles
             g1, g2, g3 = st.columns(3)
             rows = [g1, g2, g3]
             for i in range(10):
@@ -184,15 +189,19 @@ if uploaded_file:
                     st.session_state.last_guess = i
                     st.session_state.answered = True
                     st.rerun()
-        else:
-            st.markdown('<div class="control-btns next-btn">', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        # Next/Skip: Contained in a small width box
+        st.markdown('<div class="control-wrap">', unsafe_allow_html=True)
+        if st.session_state.answered:
+            st.markdown('<div class="next-btn">', unsafe_allow_html=True)
             if st.button("Next Rack (Enter)", use_container_width=True, type="primary"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="control-btns skip-btn">', unsafe_allow_html=True)
-        if st.button("Skip / Reset Streak", use_container_width=True):
+        st.markdown('<div class="skip-btn">', unsafe_allow_html=True)
+        if st.button("Skip Rack", use_container_width=True):
             st.session_state.streak = 0
             st.session_state.needs_new_rack = True
             st.rerun()
@@ -215,5 +224,5 @@ if uploaded_file:
                 with st.expander(f"📖 {sol['word']}", expanded=True):
                     if st.session_state.show_defs: st.write(f"*{sol['def']}*")
                     st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
-                    st.caption(f"Prob: {sol['prob']} | PL: {sol['play']}")
+                    st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
             if not st.session_state.current_solutions: st.info("Rack was a PHONY.")
