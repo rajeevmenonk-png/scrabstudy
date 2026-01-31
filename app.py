@@ -8,10 +8,16 @@ import streamlit.components.v1 as components
 # --- 1. INITIALIZATION ---
 if 'state' not in st.session_state:
     st.session_state.state = {
-        'streak': 0, 'display_alpha': None, 'answered': False, 
-        'current_solutions': [], 'is_phony': False, 'last_guess': None, 
-        'last_scored_id': None, 'needs_new_rack': True,
-        'filtered_alphas': [], 'current_rack_id': 0
+        'streak': 0, 
+        'display_alpha': None, 
+        'answered': False, 
+        'current_solutions': [], 
+        'is_phony': False, 
+        'last_guess': None, 
+        'last_scored_id': None, 
+        'needs_new_rack': True,
+        'filtered_alphas': [],
+        'current_rack_id': 0
     }
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
@@ -43,32 +49,32 @@ st.markdown("""
     <style>
         .block-container { padding-top: 1rem; }
         
-        /* ALPHAGRAM */
+        /* ALPHAGRAM: Single Line, Scaling Text */
         .rack-text {
             text-align: center; 
-            letter-spacing: 12px; 
+            letter-spacing: 6px; 
             color: #f1c40f; 
             font-size: clamp(2.5rem, 8vw, 4.5rem); 
             font-weight: 900;
             white-space: nowrap; 
             overflow: visible; 
             margin-bottom: 20px;
+            line-height: 1.2;
         }
 
-        /* --- MOBILE GRID OVERRIDE --- */
-        
-        /* 1. Target Horizontal Blocks that are INSIDE a column */
-        /* This distinguishes the 3x3 grid from the Main Page Layout */
-        [data-testid="column"] [data-testid="stHorizontalBlock"] {
-            flex-direction: row !important; /* Force Horizontal */
+        /* --- THE MOBILE GRID FIX --- */
+        /* This magic selector targets ONLY the horizontal blocks that have 3 items (our grid) */
+        /* It forces them to stay in a row, while letting the main page stack normally. */
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3)) {
+            flex-direction: row !important;
             flex-wrap: nowrap !important;
         }
-
-        /* 2. Target the columns inside that block */
-        [data-testid="column"] [data-testid="stHorizontalBlock"] [data-testid="column"] {
+        
+        /* Force the columns inside the grid to shrink to fit */
+        div[data-testid="stHorizontalBlock"]:has(> div:nth-child(3)) > div[data-testid="column"] {
             width: 33% !important;
             flex: 1 1 33% !important;
-            min-width: 33% !important;
+            min-width: 0px !important;
         }
 
         /* NUMBER BUTTONS: Chunky & Square */
@@ -79,15 +85,17 @@ st.markdown("""
             font-weight: 900 !important;
             background-color: #262730 !important;
             border: 2px solid #555 !important;
+            box-shadow: 0 4px 0 #111;
             padding: 0 !important;
+            margin: 0 !important;
         }
 
-        /* ACTION BUTTON: Standard Rectangular */
+        /* ACTION BUTTON: Centered Pill */
         .action-wrap {
             display: flex;
             justify-content: center;
-            margin-top: 20px;
-            margin-bottom: 20px;
+            margin-top: 25px;
+            margin-bottom: 30px;
         }
         
         .action-wrap button {
@@ -95,8 +103,8 @@ st.markdown("""
             height: 55px !important;
             font-size: 1.1rem !important;
             font-weight: 700 !important;
-            aspect-ratio: auto !important; /* Not square */
-            border-radius: 12px !important;
+            aspect-ratio: auto !important;
+            border-radius: 25px !important;
         }
         
         .reveal-btn button { background-color: #3498db !important; color: white !important; border: none !important; }
@@ -123,13 +131,13 @@ def get_lexicon(filename):
 
 alpha_map = get_lexicon("CSW24 2-15.txt")
 
-# CALLBACKS
+# --- CALLBACKS (Stops the "Looping" Error) ---
 def cb_guess(val):
     st.session_state.state['last_guess'] = val
     st.session_state.state['answered'] = True
 
 def cb_reveal():
-    st.session_state.state['last_guess'] = -1 # -1 indicates "Revealed/Skipped"
+    st.session_state.state['last_guess'] = -1
     st.session_state.state['answered'] = True
     st.session_state.state['streak'] = 0
 
@@ -191,7 +199,9 @@ col_l, col_r = st.columns([1, 1], gap="large")
 with col_l:
     st.markdown(f"<div class='rack-text'>{st.session_state.state['display_alpha']}</div>", unsafe_allow_html=True)
     
-    # --- 3x3 GRID (0-7, 8+) ---
+    # --- 3x3 GRID (0-7 and 8+) ---
+    # The CSS :has() selector above guarantees these will not stack on mobile.
+    
     # Row 1
     c1, c2, c3 = st.columns(3)
     c1.button("0", key=f"b0_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(0,))
@@ -210,17 +220,17 @@ with col_l:
     c8.button("7", key=f"b7_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(7,))
     c9.button("8+", key=f"b8_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(8,))
 
-    # --- ACTION BUTTON ---
+    # --- SINGLE ACTION BUTTON ---
     st.markdown('<div class="action-wrap">', unsafe_allow_html=True)
     if not st.session_state.state['answered']:
-        # State: Thinking
+        # Thinking State
         st.markdown('<div class="reveal-btn">', unsafe_allow_html=True)
-        st.button("Reveal Answer (Enter)", on_click=cb_reveal)
+        st.button("Reveal Answer", on_click=cb_reveal)
         st.markdown('</div>', unsafe_allow_html=True)
     else:
-        # State: Reviewing
+        # Review State
         st.markdown('<div class="next-btn">', unsafe_allow_html=True)
-        st.button("Next Rack (Enter)", on_click=cb_next)
+        st.button("Next Rack", on_click=cb_next)
         st.markdown('</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -229,7 +239,7 @@ with col_r:
     if s['answered']:
         real = len(s['current_solutions'])
         
-        # Determine success/fail
+        # Result Logic
         if s['last_guess'] == -1: 
             st.info(f"Revealed: {real} word(s)")
         elif (s['last_guess'] == real) or (s['last_guess'] == 8 and real >= 8):
@@ -243,7 +253,7 @@ with col_r:
             st.error(f"WRONG. Actual: {real} | You: {guess_str}")
             st.session_state.state['streak'] = 0; st.rerun()
 
-        # Show Words
+        # Definitions
         if s['current_solutions']:
             for sol in sorted(s['current_solutions'], key=lambda x: x['word']):
                 with st.expander(f"📖 {sol['word']}", expanded=True):
