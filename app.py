@@ -18,7 +18,7 @@ for key, val in state_keys.items():
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
-# --- 2. KEYBOARD & LAYOXUT OVERRIDES ---
+# --- 2. KEYBOARD & LAYOUT OVERRIDES ---
 components.html(
     """
     <script>
@@ -43,26 +43,32 @@ st.markdown("""
     <style>
         .block-container { padding-top: 1rem; max-width: 1300px; margin: 0 auto; }
         
-        /* RACK DISPLAY: Forced Single Line */
+        /* THE RACK: Locked to Single Line */
         .rack-text {
             text-align: center; 
             letter-spacing: 12px; 
             color: #f1c40f; 
-            font-size: clamp(2.5rem, 6vw, 4.5rem); 
+            font-size: clamp(2.2rem, 6vw, 4.2rem); 
             font-weight: 900;
-            white-space: nowrap; /* Prevents splitting into two lines */
-            overflow: hidden;
+            white-space: nowrap !important;
+            display: block !important;
+            width: 100% !important;
             margin-bottom: 20px;
         }
 
-        /* 3-COLUMN TILE GRID */
-        div[data-testid="stHorizontalBlock"] {
+        /* 3-COLUMN TILE GRID: Unbreakable Flex */
+        .flex-grid {
             display: flex !important;
-            flex-wrap: nowrap !important;
-            gap: 10px !important;
-            width: 100% !important;
+            flex-wrap: wrap !important;
             max-width: 320px !important;
             margin: 0 auto !important;
+            justify-content: center !important;
+        }
+        
+        .flex-grid div[data-testid="column"] {
+            flex: 1 1 30% !important;
+            min-width: 30% !important;
+            padding: 5px !important;
         }
 
         div.stButton > button {
@@ -75,14 +81,13 @@ st.markdown("""
             box-shadow: 0 4px 0 #111;
         }
 
-        /* CONTROL BUTTONS: Small & Centered */
-        .control-wrap { width: 160px !important; margin: 15px auto !important; }
-        .control-wrap button {
-            height: 42px !important;
-            width: 160px !important;
-            font-size: 0.85rem !important;
+        /* CONTROL BUTTONS: Small & Fixed-Width */
+        .control-panel { width: 170px !important; margin: 12px auto !important; }
+        .control-panel button {
+            height: 44px !important;
+            width: 170px !important;
+            font-size: 0.9rem !important;
             font-weight: 600 !important;
-            aspect-ratio: auto !important;
         }
         .next-btn button { background-color: #27ae60 !important; color: white !important; border: none !important; }
         .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; }
@@ -93,7 +98,7 @@ st.markdown("""
 @st.cache_data
 def load_lexicon(filename):
     if not os.path.exists(filename): return None, None
-    data, alpha_map = [], defaultdict(list)
+    data, a_map = [], defaultdict(list)
     with open(filename, 'r', encoding='latin-1') as f:
         for line in f:
             p = line.split('\t')
@@ -103,8 +108,8 @@ def load_lexicon(filename):
             info = {'word': word, 'def': p[1].strip(), 'f': p[2].strip(), 'b': p[3].strip(),
                     'prob': int(p[4]) if p[4].strip().isdigit() else 999999,
                     'play': int(p[5]) if p[5].strip().isdigit() else 0}
-            data.append(info); alpha_map["".join(sorted(word))].append(info)
-    return data, alpha_map
+            data.append(info); a_map["".join(sorted(word))].append(info)
+    return data, a_map
 
 if not st.session_state.lexicon_loaded:
     data, a_map = load_lexicon("CSW24 2-15.txt")
@@ -112,28 +117,27 @@ if not st.session_state.lexicon_loaded:
         st.session_state.master_data, st.session_state.alpha_map = data, a_map
         st.session_state.lexicon_loaded = True
 
-# --- 4. SIDEBAR (NEW TOGGLE FILTER) ---
+# --- 4. SIDEBAR (SINGLE PARAMETER FILTER) ---
 st.sidebar.metric("Streak", st.session_state.streak)
 
 with st.sidebar.form("filter_form"):
-    st.write("### Filter Settings")
+    st.write("### Filter Rules")
     w_len = st.number_input("Word Length", 2, 15, 7)
     
-    # Toggle between Prob and Play
-    filter_mode = st.radio("Filter By:", ["Probability Rank", "Playability Rating"], horizontal=True)
+    mode = st.radio("Study Focus:", ["Probability Rank", "Playability Rating"], horizontal=True)
     
     c1, c2 = st.columns(2)
-    val_min = c1.number_input("Min Value", 0, 200000, 0)
-    val_max = c2.number_input("Max Value", 0, 200000, 40000 if filter_mode == "Probability Rank" else 1000)
+    v_min = c1.number_input("Min", 0, 200000, 0)
+    v_max = c2.number_input("Max", 0, 200000, 40000 if mode == "Probability Rank" else 1000)
     
-    if st.form_submit_button("Apply & Reset"):
-        param = 'prob' if filter_mode == "Probability Rank" else 'play'
+    if st.form_submit_button("Apply & Start New"):
+        param = 'prob' if mode == "Probability Rank" else 'play'
         st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
-            if len(a) == w_len and any(val_min <= w[param] <= val_max for w in words)]
+            if len(a) == w_len and any(v_min <= w[param] <= v_max for w in words)]
         st.session_state.needs_new_rack, st.session_state.answered = True, False
         st.rerun()
 
-st.sidebar.checkbox("Show Definitions", True, key="show_defs_cb")
+st.sidebar.checkbox("Show Definitions", True, key="defs_toggle")
 
 # --- 5. GAME LOGIC ---
 def find_all_anagrams(rack):
@@ -181,25 +185,24 @@ if st.session_state.lexicon_loaded:
     with col_left:
         st.markdown(f"<div class='rack-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
-        # 3-Column Tile Grid
-        for row_idx in range(4):
-            cols = st.columns(3)
-            for col_idx in range(3):
-                i = row_idx * 3 + col_idx
-                if i < 10:
-                    label = str(i) if i <= 8 else "8+"
-                    if cols[col_idx].button(label, key=f"tile_{i}_{st.session_state.current_rack_id}"):
-                        st.session_state.last_guess, st.session_state.answered = i, True
-                        st.rerun()
+        st.markdown('<div class="flex-grid">', unsafe_allow_html=True)
+        g1, g2, g3 = st.columns(3)
+        rows = [g1, g2, g3]
+        for i in range(10):
+            label = str(i) if i <= 8 else "8+"
+            if rows[i % 3].button(label, key=f"t_{i}_{st.session_state.current_rack_id}"):
+                st.session_state.last_guess, st.session_state.answered = i, True
+                st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
         
         if st.session_state.answered:
-            st.markdown('<div class="control-wrap next-btn">', unsafe_allow_html=True)
+            st.markdown('<div class="control-panel next-btn">', unsafe_allow_html=True)
             if st.button("Next Rack (Enter)", key="next_btn"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         
-        st.markdown('<div class="control-wrap skip-btn">', unsafe_allow_html=True)
+        st.markdown('<div class="control-panel skip-btn">', unsafe_allow_html=True)
         if st.button("Skip Rack", key="skip_btn"):
             st.session_state.streak, st.session_state.needs_new_rack = 0, True
             st.rerun()
@@ -219,6 +222,6 @@ if st.session_state.lexicon_loaded:
 
             for sol in sorted(st.session_state.current_solutions, key=lambda x: x['word']):
                 with st.expander(f"📖 {sol['word']}", expanded=True):
-                    if st.session_state.get('show_defs_cb'): st.write(f"*{sol['def']}*")
+                    if st.session_state.get('defs_toggle'): st.write(f"*{sol['def']}*")
                     st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
                     st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
