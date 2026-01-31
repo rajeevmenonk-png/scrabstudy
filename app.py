@@ -19,45 +19,47 @@ for key, val in default_values.items():
     if key not in st.session_state:
         st.session_state[key] = val
 
-# --- 3. CSS (THE MOBILE FIX) ---
+# --- 3. CSS (MOBILE GRID FIX) ---
 st.markdown("""
     <style>
         .block-container { padding-top: 1rem; }
         
+        /* ALPHAGRAM */
         .rack-text {
-            text-align: center; letter-spacing: 5px; color: #f1c40f; 
-            font-size: clamp(2.5rem, 6vw, 4.5rem); font-weight: 900;
+            text-align: center; letter-spacing: 4px; color: #f1c40f; 
+            font-size: clamp(2.2rem, 6vw, 4.5rem); font-weight: 900;
             white-space: nowrap; margin-bottom: 20px;
         }
 
-        /* --- NUCLEAR MOBILE GRID FIX --- */
-        /* 1. Force the horizontal block to NEVER wrap */
+        /* --- COMPACT MOBILE GRID --- */
+        /* 1. Force the horizontal block to keep columns in a row */
         [data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
             flex-direction: row !important;
+            gap: 4px !important; /* Tiny gap to prevent overflow */
         }
 
-        /* 2. Force the columns to shrink below their default minimum */
+        /* 2. Force columns to be narrow enough to fit 3 side-by-side */
         [data-testid="column"] {
             min-width: 0px !important;
             flex: 1 1 0px !important;
-            width: 33.33% !important;
-            padding: 2px !important; /* Tighten gaps on mobile */
+            width: 31% !important; /* 31% * 3 = 93%, leaving room for margins */
+            padding: 0px !important;
         }
 
-        /* 3. Chunky Buttons */
+        /* BUTTONS */
         div.stButton > button {
             width: 100% !important;
             aspect-ratio: 1 / 1 !important;
             font-size: clamp(1.2rem, 5vw, 2.2rem) !important;
             font-weight: 900 !important;
-            background-color: #262730 !important;
+            background-color: #262730 !important; 
             border: 2px solid #555 !important;
-            margin: 0px !important;
+            margin: 0px !important; 
             padding: 0px !important;
         }
         
-        /* Action Button Styling */
+        /* ACTION BUTTON (Rectangular) */
         .reveal-btn button { background-color: #3498db !important; color: white !important; height: 55px !important; aspect-ratio: auto !important; }
         .next-btn button { background-color: #27ae60 !important; color: white !important; height: 55px !important; aspect-ratio: auto !important; }
 
@@ -65,21 +67,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- 4. DATA ---
-@st.cache_data
+@st.cache_data(show_spinner="Loading Lexicon...", ttl=3600)
 def load_lexicon(filename):
-    if not os.path.exists(filename): return None, None
-    data, a_map = [], defaultdict(list)
+    if not os.path.exists(filename): return None
+    temp_map = defaultdict(list)
     with open(filename, 'r', encoding='latin-1') as f:
         for line in f:
             p = line.split('\t')
             if len(p) < 6: continue
             word = re.sub(r'[^A-Z]', '', p[0].replace('·', '').upper())
             if not word: continue
-            info = {'word': word, 'def': p[1], 'f': p[2], 'b': p[3], 
-                    'prob': int(p[4]) if p[4].strip().isdigit() else 999999,
-                    'play': int(p[5]) if p[5].strip().isdigit() else 0}
-            a_map["".join(sorted(word))].append(info)
-    return a_map
+            # Store as tuple for memory efficiency
+            # 0=Word, 1=Def, 2=Front, 3=Back, 4=Prob, 5=Play
+            prob = int(p[4]) if p[4].strip().isdigit() else 999999
+            play = int(p[5]) if p[5].strip().isdigit() else 0
+            info = (word, p[1], p[2], p[3], prob, play)
+            temp_map["".join(sorted(word))].append(info)
+    return dict(temp_map)
 
 alpha_map = load_lexicon("CSW24 2-15.txt")
 
@@ -104,7 +108,7 @@ def find_anagrams(rack):
     for char_code in range(65, 91):
         sub = "".join(sorted(base + chr(char_code)))
         for m in alpha_map.get(sub, []):
-            if m['word'] not in seen: results.append(m); seen.add(m['word'])
+            if m[0] not in seen: results.append(m); seen.add(m[0])
     return results
 
 def trigger_new_rack():
@@ -132,12 +136,15 @@ def trigger_new_rack():
     st.session_state.current_rack_id = random.randint(1000, 9999)
     st.session_state.needs_new_rack = False
 
-# --- 6. KEYBOARD LISTENER ---
+# --- 6. KEYBOARD LISTENER (UPDATED) ---
 components.html(
     """
     <script>
     const doc = window.parent.document;
     doc.addEventListener('keydown', function(e) {
+        // IMPORTANT: Ignore keys if user is typing in an input box
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
         if (e.key >= '0' && e.key <= '8') {
             const btns = Array.from(doc.querySelectorAll('button'));
             const label = e.key === '8' ? '8+' : e.key;
@@ -160,17 +167,18 @@ if alpha_map and st.session_state.needs_new_rack:
     trigger_new_rack()
 
 st.sidebar.metric("Streak", st.session_state.streak)
-show_defs = st.sidebar.checkbox("Show Definitions", True) # Fixed: Outside loop
+show_defs = st.sidebar.checkbox("Show Definitions", True)
 
 with st.sidebar.form("settings"):
     length = st.number_input("Len", 2, 15, 7)
     mode = st.radio("Focus", ["Prob", "Play"], horizontal=True)
     mn, mx = st.columns(2)
     v_min, v_max = mn.number_input("Min", 0, 200000, 0), mx.number_input("Max", 0, 200000, 40000)
+    
     if st.form_submit_button("Apply"):
-        param = 'prob' if mode == "Prob" else 'play'
+        param_idx = 4 if mode == "Prob" else 5 # 4=Prob, 5=Play
         st.session_state.filtered_alphas = [a for a, words in alpha_map.items() 
-            if len(a) == length and any(v_min <= w[param] <= v_max for w in words)]
+            if len(a) == length and any(v_min <= w[param_idx] <= v_max for w in words)]
         st.session_state.needs_new_rack = True
         st.rerun()
 
@@ -179,19 +187,17 @@ col_l, col_r = st.columns([1, 1], gap="large")
 with col_l:
     st.markdown(f"<div class='rack-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
     
-    # GRID: 0-2
+    # 3x3 GRID
     c1, c2, c3 = st.columns(3)
     c1.button("0", key=f"b0_{st.session_state.current_rack_id}", on_click=cb_guess, args=(0,))
     c2.button("1", key=f"b1_{st.session_state.current_rack_id}", on_click=cb_guess, args=(1,))
     c3.button("2", key=f"b2_{st.session_state.current_rack_id}", on_click=cb_guess, args=(2,))
     
-    # GRID: 3-5
     c4, c5, c6 = st.columns(3)
     c4.button("3", key=f"b3_{st.session_state.current_rack_id}", on_click=cb_guess, args=(3,))
     c5.button("4", key=f"b4_{st.session_state.current_rack_id}", on_click=cb_guess, args=(4,))
     c6.button("5", key=f"b5_{st.session_state.current_rack_id}", on_click=cb_guess, args=(5,))
     
-    # GRID: 6-8+
     c7, c8, c9 = st.columns(3)
     c7.button("6", key=f"b6_{st.session_state.current_rack_id}", on_click=cb_guess, args=(6,))
     c8.button("7", key=f"b7_{st.session_state.current_rack_id}", on_click=cb_guess, args=(7,))
@@ -224,10 +230,11 @@ with col_r:
             st.session_state.streak = 0
             
         if st.session_state.current_solutions:
-            for s in sorted(st.session_state.current_solutions, key=lambda x: x['word']):
-                with st.expander(f"📖 {s['word']}", expanded=True):
-                    st.write(f"**Hooks:** `[{s['f']}]` {s['word']} `[{s['b']}]`")
-                    st.caption(f"Prob: {s['prob']} | Play: {s['play']}")
-                    if show_defs: st.write(f"*{s['def']}*")
+            # Sort by word (Index 0)
+            for s in sorted(st.session_state.current_solutions, key=lambda x: x[0]):
+                with st.expander(f"📖 {s[0]}", expanded=True):
+                    st.write(f"**Hooks:** `[{s[2]}]` {s[0]} `[{s[3]}]`") 
+                    st.caption(f"Prob: {s[4]} | Play: {s[5]}")
+                    if show_defs: st.write(f"*{s[1]}*")
         else:
             st.info("PHONY.")
