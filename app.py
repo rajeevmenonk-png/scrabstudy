@@ -52,24 +52,24 @@ st.markdown("""
             margin-bottom: 10px;
         }
 
-        /* MOBILE & DESKTOP GRID: Forces 3 columns */
-        [data-testid="column"] {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
+        /* --- THE MAGIC GRID FIX --- */
+        /* This forces 3 columns even when Streamlit wants to stack them */
+        .tile-grid {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 10px !important;
+            width: 100% !important;
+            max-width: 320px !important;
+            margin: 0 auto !important;
         }
 
-        .tile-grid-container {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            width: 100%;
-            max-width: 320px;
-            margin: 0 auto;
+        /* Target Streamlit buttons inside our grid */
+        .tile-grid div[data-testid="stVerticalBlock"] > div {
+            width: 100% !important;
         }
 
-        /* NUMBER TILES */
-        .tile-grid-container button {
+        /* NUMBER TILES STYLE */
+        .tile-grid button {
             aspect-ratio: 1 / 1 !important;
             width: 100% !important;
             font-size: 2rem !important;
@@ -77,12 +77,13 @@ st.markdown("""
             background-color: #262730 !important;
             border: 2px solid #555 !important;
             box-shadow: 0 4px 0 #111;
+            padding: 0 !important;
         }
 
-        /* CONTROL BUTTONS: Strictly fixed at 180px wide */
+        /* CONTROL BUTTONS: Small & Fixed */
         .control-btn-container {
             width: 180px !important;
-            margin: 20px auto !important;
+            margin: 15px auto !important;
         }
         
         .control-btn-container button {
@@ -91,16 +92,10 @@ st.markdown("""
             font-size: 0.9rem !important;
             font-weight: 600 !important;
             border-radius: 8px !important;
-            aspect-ratio: auto !important;
         }
 
-        .next-btn button { background-color: #27ae60 !important; color: white !important; border: none !important; box-shadow: 0 3px 0 #1e8449 !important; }
-        .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; box-shadow: 0 3px 0 #922b21 !important; }
-        
-        /* Mobile adjustment for column stacking */
-        @media (max-width: 768px) {
-            [data-testid="column"] { width: 100% !important; }
-        }
+        .next-btn button { background-color: #27ae60 !important; color: white !important; border: none !important; }
+        .skip-btn button { background-color: #c0392b !important; color: white !important; border: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -130,7 +125,7 @@ if not st.session_state.lexicon_loaded:
         st.session_state.master_data, st.session_state.alpha_map = data, alpha_map
         st.session_state.valid_alphas, st.session_state.lexicon_loaded = set(alpha_map.keys()), True
 
-# --- 4. SIDEBAR (ISOLATED) ---
+# --- 4. SIDEBAR ---
 st.sidebar.metric("Streak", st.session_state.streak)
 
 with st.sidebar.form("filter_form"):
@@ -144,7 +139,7 @@ with st.sidebar.form("filter_form"):
         st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
             if len(a) == w_len and any(min_p <= w['prob'] <= max_p and min_play <= w['play'] <= max_play for w in words)]
         st.session_state.needs_new_rack = True
-        st.session_state.answered = False # PREVENTS LAG RESPONSE
+        st.session_state.answered = False 
         st.rerun()
 
 st.session_state.show_defs = st.sidebar.checkbox("Show Definitions", value=True)
@@ -194,17 +189,16 @@ if st.session_state.lexicon_loaded:
     with col1:
         st.markdown(f"<div class='rack-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
-        # Grid Container
-        st.markdown('<div class="tile-grid-container">', unsafe_allow_html=True)
+        # --- THE TILE GRID ---
+        # We wrap the buttons in a div and use CSS Grid to prevent stacking
+        st.markdown('<div class="tile-grid">', unsafe_allow_html=True)
+        # Using separate blocks for each button so the CSS Grid can pick them up
         for i in range(10):
             label = str(i) if i <= 8 else "8+"
-            if st.button(label, key=f"btn_{i}_{st.session_state.current_rack_id}"):
-                st.session_state.last_guess = i
-                st.session_state.answered = True
-                st.rerun()
+            st.button(label, key=f"btn_{i}_{st.session_state.current_rack_id}", on_click=lambda val=i: st.session_state.update({"last_guess": val, "answered": True}))
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # Control Buttons
+        # --- CONTROLS ---
         if st.session_state.answered:
             st.markdown('<div class="control-btn-container next-btn">', unsafe_allow_html=True)
             if st.button("Next Rack (Enter)", key="next_btn"):
@@ -236,4 +230,3 @@ if st.session_state.lexicon_loaded:
                     if st.session_state.show_defs: st.write(f"*{sol['def']}*")
                     st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
                     st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
-            if not st.session_state.current_solutions: st.info("Rack was a PHONY.")
