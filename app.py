@@ -18,7 +18,7 @@ for key, val in state_keys.items():
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
-# --- 2. KEYBOARD & MOBILE LAYOUT ---
+# --- 2. KEYBOARD & LAYOXUT OVERRIDES ---
 components.html(
     """
     <script>
@@ -41,43 +41,46 @@ components.html(
 
 st.markdown("""
     <style>
-        .block-container { padding-top: 1rem; max-width: 1200px; margin: 0 auto; }
-        .rack-text { text-align: center; letter-spacing: 12px; color: #f1c40f; font-size: clamp(2.2rem, 8vw, 3.8rem); font-weight: 900; margin-bottom: 10px; }
-
-        /* --- THE UNBREAKABLE 3-COLUMN MOBILE GRID --- */
-        /* Forces columns to NOT stack on mobile */
-        [data-testid="column"] {
-            min-width: 0 !important;
-            flex-basis: 0 !important;
-            flex-grow: 1 !important;
-        }
+        .block-container { padding-top: 1rem; max-width: 1300px; margin: 0 auto; }
         
+        /* RACK DISPLAY: Forced Single Line */
+        .rack-text {
+            text-align: center; 
+            letter-spacing: 12px; 
+            color: #f1c40f; 
+            font-size: clamp(2.5rem, 6vw, 4.5rem); 
+            font-weight: 900;
+            white-space: nowrap; /* Prevents splitting into two lines */
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        /* 3-COLUMN TILE GRID */
         div[data-testid="stHorizontalBlock"] {
             display: flex !important;
-            flex-wrap: nowrap !important; /* Prevents vertical stacking */
+            flex-wrap: nowrap !important;
             gap: 10px !important;
             width: 100% !important;
-            max-width: 350px !important;
+            max-width: 320px !important;
             margin: 0 auto !important;
         }
 
-        /* NUMBER TILES (Chunky Squares) */
         div.stButton > button {
             aspect-ratio: 1 / 1 !important;
             width: 100% !important;
-            font-size: 2rem !important;
+            font-size: 1.8rem !important;
             font-weight: 900 !important;
             background-color: #262730 !important;
             border: 2px solid #555 !important;
             box-shadow: 0 4px 0 #111;
         }
 
-        /* CONTROL BUTTONS (Next/Skip) - Locked to 200px wide */
-        .control-wrap { width: 200px !important; margin: 15px auto !important; }
+        /* CONTROL BUTTONS: Small & Centered */
+        .control-wrap { width: 160px !important; margin: 15px auto !important; }
         .control-wrap button {
-            height: 45px !important;
-            width: 200px !important;
-            font-size: 0.9rem !important;
+            height: 42px !important;
+            width: 160px !important;
+            font-size: 0.85rem !important;
             font-weight: 600 !important;
             aspect-ratio: auto !important;
         }
@@ -97,7 +100,6 @@ def load_lexicon(filename):
             if len(p) < 7: continue
             word = re.sub(r'[^A-Z]', '', p[0].replace('·', '').upper())
             if not word: continue
-            # Prob Rank (Lower is more common) | Playability (Higher is usually better)
             info = {'word': word, 'def': p[1].strip(), 'f': p[2].strip(), 'b': p[3].strip(),
                     'prob': int(p[4]) if p[4].strip().isdigit() else 999999,
                     'play': int(p[5]) if p[5].strip().isdigit() else 0}
@@ -110,25 +112,28 @@ if not st.session_state.lexicon_loaded:
         st.session_state.master_data, st.session_state.alpha_map = data, a_map
         st.session_state.lexicon_loaded = True
 
-# --- 4. SIDEBAR (STRICT FILTERING) ---
+# --- 4. SIDEBAR (NEW TOGGLE FILTER) ---
 st.sidebar.metric("Streak", st.session_state.streak)
 
 with st.sidebar.form("filter_form"):
-    st.write("### Filter Rules (Prob AND Play)")
-    w_len = st.number_input("Length", 2, 15, 7)
-    c1, c2 = st.columns(2)
-    min_p, max_p = c1.number_input("Min Prob", 0, 200000, 0), c2.number_input("Max Prob", 0, 200000, 40000)
-    c3, c4 = st.columns(2)
-    min_pl, max_pl = c3.number_input("Min Play", 0, 200000, 0), c4.number_input("Max Play", 0, 200000, 100000)
+    st.write("### Filter Settings")
+    w_len = st.number_input("Word Length", 2, 15, 7)
     
-    if st.form_submit_button("Apply Filters & Reset"):
-        # Logic: Must meet BOTH Probability and Playability requirements
+    # Toggle between Prob and Play
+    filter_mode = st.radio("Filter By:", ["Probability Rank", "Playability Rating"], horizontal=True)
+    
+    c1, c2 = st.columns(2)
+    val_min = c1.number_input("Min Value", 0, 200000, 0)
+    val_max = c2.number_input("Max Value", 0, 200000, 40000 if filter_mode == "Probability Rank" else 1000)
+    
+    if st.form_submit_button("Apply & Reset"):
+        param = 'prob' if filter_mode == "Probability Rank" else 'play'
         st.session_state.filtered_alphas = [a for a, words in st.session_state.alpha_map.items() 
-            if len(a) == w_len and any(min_p <= w['prob'] <= max_p and min_pl <= w['play'] <= max_pl for w in words)]
+            if len(a) == w_len and any(val_min <= w[param] <= val_max for w in words)]
         st.session_state.needs_new_rack, st.session_state.answered = True, False
         st.rerun()
 
-st.session_state.show_defs = st.sidebar.checkbox("Show Definitions", True)
+st.sidebar.checkbox("Show Definitions", True, key="show_defs_cb")
 
 # --- 5. GAME LOGIC ---
 def find_all_anagrams(rack):
@@ -176,7 +181,7 @@ if st.session_state.lexicon_loaded:
     with col_left:
         st.markdown(f"<div class='rack-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
-        # Fixed 3-column Grid for Tiles
+        # 3-Column Tile Grid
         for row_idx in range(4):
             cols = st.columns(3)
             for col_idx in range(3):
@@ -214,6 +219,6 @@ if st.session_state.lexicon_loaded:
 
             for sol in sorted(st.session_state.current_solutions, key=lambda x: x['word']):
                 with st.expander(f"📖 {sol['word']}", expanded=True):
-                    if st.session_state.show_defs: st.write(f"*{sol['def']}*")
+                    if st.session_state.get('show_defs_cb'): st.write(f"*{sol['def']}*")
                     st.write(f"**Hooks:** `[{sol['f']}]` {sol['word']} `[{sol['b']}]`")
                     st.caption(f"Prob: {sol['prob']} | Play: {sol['play']}")
