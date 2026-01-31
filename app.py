@@ -18,7 +18,7 @@ for key, val in state_keys.items():
 
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
-# --- 2. KEYBOARD & MOBILE WIDTH OVERRIDES ---
+# --- 2. KEYBOARD & MOBILE OVERRIDES ---
 components.html(
     """
     <script>
@@ -30,7 +30,6 @@ components.html(
             const targetBtn = btns.find(b => b.innerText === targetLabel);
             if (targetBtn) targetBtn.click();
         } else if (e.key === 'Enter') {
-            // Enter hits the single Action Button regardless of its label
             const actionBtn = Array.from(doc.querySelectorAll('button')).find(b => 
                 b.innerText.includes('Reveal') || b.innerText.includes('Next Rack')
             );
@@ -50,49 +49,46 @@ st.markdown("""
             text-align: center; 
             letter-spacing: 12px; 
             color: #f1c40f; 
-            font-size: clamp(2rem, 10vw, 4.2rem); 
+            font-size: clamp(2rem, 10vw, 4rem); 
             font-weight: 900;
-            white-space: nowrap;
+            white-space: nowrap !important;
+            overflow: hidden;
             margin-bottom: 20px;
         }
 
-        /* MOBILE FIX: 3 columns using percentages to avoid overflow */
-        .flex-grid {
-            display: flex !important;
-            flex-wrap: wrap !important;
+        /* MOBILE FIX: 3-column Grid that never stacks or overflows */
+        .tile-container {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 8px !important;
             width: 100% !important;
-            max-width: 300px !important; /* Smaller max-width for mobile portrait */
+            max-width: 280px !important; /* Narrower to prevent right-scroll on phone */
             margin: 0 auto !important;
         }
         
-        .flex-grid div[data-testid="column"] {
-            flex: 1 1 31% !important; /* Forces 3 items per row */
-            min-width: 31% !important;
-            padding: 4px !important;
-        }
-
-        div.stButton > button {
+        /* Forces number buttons to stay square and fit */
+        .tile-container button {
             aspect-ratio: 1 / 1 !important;
             width: 100% !important;
-            font-size: clamp(1.2rem, 5vw, 2rem) !important;
+            min-width: 0 !important;
+            font-size: clamp(1.2rem, 5vw, 1.8rem) !important;
             font-weight: 900 !important;
             background-color: #262730 !important;
             border: 2px solid #555 !important;
+            padding: 0 !important;
         }
 
-        /* CONTEXT ACTION BUTTON: Standard Size */
-        .action-panel { width: 220px !important; margin: 15px auto !important; }
+        /* SINGLE ACTION BUTTON: Context Aware */
+        .action-panel { width: 200px !important; margin: 20px auto !important; }
         .action-panel button {
-            height: 50px !important;
-            width: 220px !important;
+            height: 55px !important;
+            width: 200px !important;
             font-size: 1.1rem !important;
             font-weight: 700 !important;
-            aspect-ratio: auto !important;
             border-radius: 8px !important;
         }
-        .reveal-style button { background-color: #3498db !important; color: white !important; }
-        .next-style button { background-color: #27ae60 !important; color: white !important; }
-        .skip-btn button { background-color: #c0392b !important; color: white !important; height: 40px !important; margin-top: 10px; }
+        .reveal-btn button { background-color: #3498db !important; color: white !important; }
+        .next-btn button { background-color: #27ae60 !important; color: white !important; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -122,8 +118,8 @@ if not st.session_state.lexicon_loaded:
 # --- 4. SIDEBAR ---
 st.sidebar.metric("Streak", st.session_state.streak)
 with st.sidebar.form("filter_form"):
-    w_len = st.number_input("Word Length", 2, 15, 7)
-    mode = st.radio("Study Focus:", ["Probability Rank", "Playability Rating"], horizontal=True)
+    w_len = st.number_input("Length", 2, 15, 7)
+    mode = st.radio("Focus:", ["Probability Rank", "Playability Rating"], horizontal=True)
     c1, c2 = st.columns(2)
     v_min, v_max = c1.number_input("Min", 0, 200000, 0), c2.number_input("Max", 0, 200000, 40000 if mode == "Probability Rank" else 1000)
     if st.form_submit_button("Apply & Reset"):
@@ -176,41 +172,37 @@ if st.session_state.lexicon_loaded:
     with col_l:
         st.markdown(f"<div class='rack-text'>{st.session_state.display_alpha}</div>", unsafe_allow_html=True)
         
-        # 3-Column Tile Grid
-        st.markdown('<div class="flex-grid">', unsafe_allow_html=True)
+        # --- GRID OF NUMBER TILES ---
+        # Wrapped in a div with CSS grid to force 3 columns on all devices
+        st.markdown('<div class="tile-container">', unsafe_allow_html=True)
         for i in range(10):
             label = str(i) if i <= 8 else "8+"
-            if st.columns(3)[i % 3].button(label, key=f"t_{i}_{st.session_state.current_rack_id}"):
+            if st.button(label, key=f"t_{i}_{st.session_state.current_rack_id}"):
                 st.session_state.last_guess, st.session_state.answered = i, True
                 st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # --- UNIVERSAL ACTION BUTTON LOGIC ---
+        # --- SINGLE ACTION BUTTON ---
         st.markdown('<div class="action-panel">', unsafe_allow_html=True)
         if not st.session_state.answered:
-            st.markdown('<div class="reveal-style">', unsafe_allow_html=True)
-            if st.button("Reveal Answer (Enter)", key="reveal_btn"):
-                st.session_state.answered, st.session_state.last_guess = True, -1 # -1 = No guess made
+            st.markdown('<div class="reveal-btn">', unsafe_allow_html=True)
+            if st.button("Reveal Answer", key="reveal_btn"):
+                st.session_state.answered, st.session_state.last_guess = True, -1
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
         else:
-            st.markdown('<div class="next-style">', unsafe_allow_html=True)
-            if st.button("Next Rack (Enter)", key="next_btn"):
+            st.markdown('<div class="next-btn">', unsafe_allow_html=True)
+            if st.button("Next Rack", key="next_btn"):
                 st.session_state.needs_new_rack = True
                 st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
-        
-        st.markdown('<div class="skip-btn">', unsafe_allow_html=True)
-        if st.button("Skip Rack", key="skip_btn"):
-            st.session_state.streak, st.session_state.needs_new_rack = 0, True
-            st.rerun()
-        st.markdown('</div></div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_r:
         if st.session_state.answered:
             real_count = len(st.session_state.current_solutions)
             if st.session_state.last_guess == -1:
-                st.info(f"Answer revealed: {real_count} word(s).")
+                st.info(f"Answer Revealed: {real_count} word(s).")
                 st.session_state.streak = 0
             elif (st.session_state.last_guess == real_count) or (st.session_state.last_guess == 9 and real_count > 8):
                 st.success(f"CORRECT! ({real_count})")
