@@ -5,10 +5,9 @@ import os
 from collections import defaultdict
 import streamlit.components.v1 as components
 
-# --- 1. CONFIGURATION ---
+# --- CONFIG ---
 st.set_page_config(page_title="Scrabble Anagram Pro", layout="wide")
 
-# --- 2. SESSION STATE ---
 if 'state' not in st.session_state:
     st.session_state.state = {
         'streak': 0, 'display_alpha': None, 'answered': False, 
@@ -17,54 +16,19 @@ if 'state' not in st.session_state:
         'filtered_alphas': [], 'current_rack_id': 0
     }
 
-# --- 3. CSS (NO SCROLL FIX) ---
 st.markdown("""
     <style>
-        .block-container { padding-top: 1rem; padding-left: 1rem; padding-right: 1rem; }
-        
         .rack-text {
-            text-align: center; letter-spacing: 4px; color: #f1c40f; 
-            font-size: clamp(2.5rem, 8vw, 4.5rem); font-weight: 900;
+            text-align: center; letter-spacing: 5px; color: #f1c40f; 
+            font-size: clamp(2.5rem, 6vw, 4.5rem); font-weight: 900;
             white-space: nowrap; margin-bottom: 20px;
         }
-
-        /* --- THE NO-SCROLL GRID FIX --- */
-        /* 1. Target the row holding the buttons */
-        [data-testid="stHorizontalBlock"] {
-            display: grid !important;
-            grid-template-columns: 1fr 1fr 1fr !important; /* 3 equal fractions */
-            gap: 6px !important; 
-            width: 100% !important;
-        }
-        
-        /* 2. Reset columns to shrink below their minimum width */
-        [data-testid="column"] {
-            width: auto !important;
-            flex: none !important;
-            min-width: 0px !important; /* CRITICAL for mobile */
-            padding: 0px !important;
-        }
-
-        /* 3. Buttons fill the cell */
-        div.stButton > button {
-            width: 100% !important;
-            aspect-ratio: 1 / 1 !important;
-            font-size: clamp(1rem, 5vw, 2rem) !important;
-            font-weight: 900 !important;
-            background-color: #262730 !important; 
-            border: 2px solid #555 !important;
-            margin: 0px !important; 
-            padding: 0px !important;
-        }
-        
-        /* Action Button */
-        .reveal-btn button { background-color: #3498db !important; color: white !important; height: 55px !important; aspect-ratio: auto !important; }
-        .next-btn button { background-color: #27ae60 !important; color: white !important; height: 55px !important; aspect-ratio: auto !important; }
-
+        .reveal-btn button { background-color: #3498db !important; color: white !important; width: 100%; }
+        .next-btn button { background-color: #27ae60 !important; color: white !important; width: 100%; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. DATA ---
+# --- DATA ---
 @st.cache_data(ttl=3600)
 def load_lexicon(filename):
     if not os.path.exists(filename): return None
@@ -81,11 +45,7 @@ def load_lexicon(filename):
 
 alpha_map = load_lexicon("CSW24 2-15.txt")
 
-# --- 5. LOGIC ---
-def cb_guess(val):
-    st.session_state.state['last_guess'] = val
-    st.session_state.state['answered'] = True
-
+# --- LOGIC ---
 def cb_reveal():
     st.session_state.state['last_guess'] = -1
     st.session_state.state['answered'] = True
@@ -108,13 +68,11 @@ def find_anagrams(rack):
 if alpha_map and st.session_state.state['needs_new_rack']:
     if not st.session_state.state['filtered_alphas']:
         st.session_state.state['filtered_alphas'] = [a for a in alpha_map.keys() if len(a) == 7]
-    
     st.session_state.state['is_phony'] = random.random() < 0.20
     rack = random.choice(st.session_state.state['filtered_alphas'])
     if random.random() < 0.20:
         arr = list(rack); arr[random.randint(0, len(arr)-1)] = '?'
         rack = "".join(sorted(arr))
-    
     if st.session_state.state['is_phony']:
         for _ in range(20):
             v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
@@ -124,7 +82,6 @@ if alpha_map and st.session_state.state['needs_new_rack']:
             test = "".join(sorted(arr))
             if not (find_anagrams(test) if '?' in test else alpha_map.get(test, [])):
                 rack = test; break
-
     st.session_state.state.update({
         'display_alpha': rack,
         'current_solutions': find_anagrams(rack) if '?' in rack else alpha_map.get(rack, []),
@@ -132,28 +89,7 @@ if alpha_map and st.session_state.state['needs_new_rack']:
         'needs_new_rack': False
     })
 
-# --- 6. JS KEYBOARD LISTENER ---
-components.html("""
-    <script>
-    const doc = window.parent.document;
-    doc.addEventListener('keydown', function(e) {
-        if (e.target.tagName === 'INPUT') return; // Don't trigger when typing in inputs
-        if (e.key >= '0' && e.key <= '8') {
-            const btns = Array.from(doc.querySelectorAll('button'));
-            const label = e.key === '8' ? '8+' : e.key;
-            const target = btns.find(b => b.innerText === label);
-            if (target) target.click();
-        } else if (e.key === 'Enter') {
-            const action = Array.from(doc.querySelectorAll('button')).find(b => 
-                b.innerText.includes('Reveal') || b.innerText.includes('Next')
-            );
-            if (action) action.click();
-        }
-    });
-    </script>
-""", height=0)
-
-# --- 7. UI ---
+# --- UI ---
 st.sidebar.metric("Streak", st.session_state.state['streak'])
 show_defs = st.sidebar.checkbox("Show Definitions", True)
 with st.sidebar.form("settings"):
@@ -173,21 +109,14 @@ col_l, col_r = st.columns([1, 1], gap="large")
 with col_l:
     st.markdown(f"<div class='rack-text'>{st.session_state.state['display_alpha']}</div>", unsafe_allow_html=True)
     
-    # 3x3 BUTTON GRID
-    c1, c2, c3 = st.columns(3)
-    c1.button("0", key=f"b0_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(0,))
-    c2.button("1", key=f"b1_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(1,))
-    c3.button("2", key=f"b2_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(2,))
+    # NATIVE PILLS (Handles layout automatically)
+    selection = st.pills("Count:", ["0", "1", "2", "3", "4", "5", "6", "7", "8+"], selection_mode="single", key=f"pills_{st.session_state.state['current_rack_id']}")
     
-    c4, c5, c6 = st.columns(3)
-    c4.button("3", key=f"b3_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(3,))
-    c5.button("4", key=f"b4_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(4,))
-    c6.button("5", key=f"b5_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(5,))
-    
-    c7, c8, c9 = st.columns(3)
-    c7.button("6", key=f"b6_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(6,))
-    c8.button("7", key=f"b7_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(7,))
-    c9.button("8+", key=f"b8_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(8,))
+    if selection and not st.session_state.state['answered']:
+        val = 8 if selection == "8+" else int(selection)
+        st.session_state.state['last_guess'] = val
+        st.session_state.state['answered'] = True
+        st.rerun()
 
     st.write("")
     if not st.session_state.state['answered']:
