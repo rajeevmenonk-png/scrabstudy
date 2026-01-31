@@ -46,6 +46,12 @@ def load_lexicon(filename):
 alpha_map = load_lexicon("CSW24 2-15.txt")
 
 # --- LOGIC ---
+def cb_guess():
+    # Get value from session state key
+    val = st.session_state.num_input
+    st.session_state.state['last_guess'] = val
+    st.session_state.state['answered'] = True
+
 def cb_reveal():
     st.session_state.state['last_guess'] = -1
     st.session_state.state['answered'] = True
@@ -55,6 +61,7 @@ def cb_next():
     st.session_state.state['needs_new_rack'] = True
     st.session_state.state['answered'] = False
     st.session_state.state['last_guess'] = None
+    st.session_state.num_input = 0 # Reset input
 
 def find_anagrams(rack):
     results, seen = [], set()
@@ -109,14 +116,12 @@ col_l, col_r = st.columns([1, 1], gap="large")
 with col_l:
     st.markdown(f"<div class='rack-text'>{st.session_state.state['display_alpha']}</div>", unsafe_allow_html=True)
     
-    # NATIVE PILLS (Handles layout automatically)
-    selection = st.pills("Count:", ["0", "1", "2", "3", "4", "5", "6", "7", "8+"], selection_mode="single", key=f"pills_{st.session_state.state['current_rack_id']}")
-    
-    if selection and not st.session_state.state['answered']:
-        val = 8 if selection == "8+" else int(selection)
-        st.session_state.state['last_guess'] = val
-        st.session_state.state['answered'] = True
-        st.rerun()
+    # SIMPLE NUMBER INPUT
+    with st.form("guess_form", border=False):
+        c_in, c_btn = st.columns([3, 1])
+        c_in.number_input("Count", 0, 20, key="num_input", label_visibility="collapsed")
+        if c_btn.form_submit_button("Submit", on_click=cb_guess):
+            pass
 
     st.write("")
     if not st.session_state.state['answered']:
@@ -133,7 +138,7 @@ with col_r:
     if s['answered']:
         real = len(s['current_solutions'])
         ug = s['last_guess']
-        is_cor = (ug == real) or (ug == 8 and real >= 8)
+        is_cor = (ug == real) or (ug >= 8 and real >= 8)
         if ug == -1: st.info(f"Revealed: {real}")
         elif is_cor:
             st.success(f"CORRECT! ({real})")
