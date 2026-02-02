@@ -28,30 +28,15 @@ st.markdown("""
             white-space: nowrap; margin-bottom: 20px;
         }
 
-        /* --- FAUX PILLS (Custom Button Row) --- */
-        /* This container forces the buttons to sit in a wrapping row */
-        .pill-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            justify-content: center;
-            margin-bottom: 20px;
-        }
-
-        /* Style the buttons to look like pills/chips */
-        .pill-container button {
-            width: 45px !important;
-            height: 45px !important;
-            border-radius: 50% !important; /* Circular/Pill shape */
-            font-weight: bold !important;
-            font-size: 1.2rem !important;
-            padding: 0 !important;
-            background-color: #262730 !important;
-            border: 2px solid #555 !important;
-        }
+        /* Action Buttons */
+        .reveal-btn button { background-color: #3498db !important; color: white !important; width: 100%; height: 50px; border-radius: 12px; border: none; font-weight: bold; font-size: 1.1rem; }
+        .next-btn button { background-color: #27ae60 !important; color: white !important; width: 100%; height: 50px; border-radius: 12px; border: none; font-weight: bold; font-size: 1.1rem; }
         
-        .reveal-btn button { background-color: #3498db !important; color: white !important; width: 100%; border-radius: 12px; height: 50px; }
-        .next-btn button { background-color: #27ae60 !important; color: white !important; width: 100%; border-radius: 12px; height: 50px; }
+        /* Pill Styling Enhancement */
+        div[data-baseweb="select"] > div { font-weight: bold; }
+        
+        /* Help Text */
+        .filter-help { font-size: 0.8rem; color: #888; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -73,11 +58,36 @@ def load_lexicon(filename):
 
 alpha_map = load_lexicon("CSW24 2-15.txt")
 
-# Callbacks
-def cb_guess(val):
-    st.session_state.state['last_guess'] = val
-    st.session_state.state['answered'] = True
+# --- SMART FILTER LOGIC ---
+def check_smart_filter(word, query):
+    if not query: return True
+    query = query.upper().strip()
+    
+    # 1. Prefix (e.g., ^UN)
+    if query.startswith("^"):
+        return word.startswith(query[1:])
+    
+    # 2. Suffix (e.g., ING$)
+    if query.endswith("$"):
+        return word.endswith(query[:-1])
+    
+    # 3. Vowel Count (e.g., 5v)
+    if 'V' in query and query[:-1].isdigit():
+        vowels = sum(1 for c in word if c in 'AEIOU')
+        target = int(query[:-1])
+        return vowels == target
+    
+    # 4. Consonant Count (e.g., 5c)
+    if 'C' in query and query[:-1].isdigit():
+        cons = sum(1 for c in word if c not in 'AEIOU')
+        target = int(query[:-1])
+        return cons == target
 
+    # 5. Default: Contains ANY of the letters (e.g., JQZ)
+    # Check if the word contains at least one of the letters in query
+    return any(char in word for char in query)
+
+# --- GAME CALLBACKS ---
 def cb_reveal():
     st.session_state.state['last_guess'] = -1
     st.session_state.state['answered'] = True
@@ -99,61 +109,57 @@ def find_anagrams(rack):
     return results
 
 if alpha_map and st.session_state.state['needs_new_rack']:
-    # 1. Apply Filters
     if not st.session_state.state['filtered_alphas']:
         # Fallback
         st.session_state.state['filtered_alphas'] = [a for a in alpha_map.keys() if len(a) == 7]
     
-    # 2. Phony Logic (Dynamic Frequency)
-    # Shorter words = higher phony chance. Longer words = lower.
-    word_len = len(st.session_state.state['filtered_alphas'][0])
-    phony_chance = 0.20 if word_len <= 6 else (0.15 if word_len == 7 else 0.10)
-    
+    # --- SMART PHONY LOGIC ---
+    # Length-dependent frequency
+    # Short words (<=6) are harder to spot, so we keep phonies common (20%)
+    # Long words (8+) are easier to spot, so we lower phonies (10%)
+    filtered_list = st.session_state.state['filtered_alphas']
+    if filtered_list:
+        sample_len = len(filtered_list[0])
+        phony_chance = 0.20 if sample_len <= 6 else (0.15 if sample_len == 7 else 0.10)
+    else:
+        phony_chance = 0.15
+
     st.session_state.state['is_phony'] = random.random() < phony_chance
-    rack = random.choice(st.session_state.state['filtered_alphas'])
+    rack = random.choice(filtered_list)
     
-    # 3. Blanks
+    # Blank Handling
     if random.random() < 0.20:
         arr = list(rack); arr[random.randint(0, len(arr)-1)] = '?'
         rack = "".join(sorted(arr))
     
-    # 4. Generate Phony (On the Fly)
+    # Phony Generation (Swapping)
     if st.session_state.state['is_phony']:
-        # Try to create a subtle phony (swap 1 char)
         for _ in range(30):
             v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
             arr = list(rack); idx = random.randint(0, len(arr)-1)
             if arr[idx] == '?': continue
-            # Swap vowel for vowel, cons for cons to make it look realistic
-            arr[idx] = random.choice([x for x in v if x != arr[idx]]) if arr[idx] in v else random.choice([x for x in c if x != arr[idx]])
+            # Swap Vowel->Vowel or Consonant->Consonant for realism
+            source = v if arr[idx] in v else c
+            arr[idx] = random.choice([x for x in source if x != arr[idx]])
             test = "".join(sorted(arr))
             # Verify it's actually invalid
             if not (find_anagrams(test) if '?' in test else alpha_map.get(test, [])):
                 rack = test; break
-
+                
     st.session_state.state.update({
         'display_alpha': rack,
         'current_solutions': find_anagrams(rack) if '?' in rack else alpha_map.get(rack, []),
         'needs_new_rack': False
     })
 
-# --- 4. KEYBOARD LISTENER (Robust) ---
-# Since we are using real buttons again, this will work perfectly.
+# --- 4. KEYBOARD LISTENER (ENTER ONLY) ---
+# Since pills don't support 0-9 keyboard input natively, we focus on Enter for flow
 components.html(
     """
     <script>
     const doc = window.parent.document;
     doc.addEventListener('keydown', function(e) {
-        if (e.target.tagName === 'INPUT') return; // Don't trigger when typing in filters
-        
-        if (e.key >= '0' && e.key <= '9') {
-            const btns = Array.from(doc.querySelectorAll('button'));
-            const label = e.key === '9' ? '9+' : e.key;
-            // Precise match to avoid matching "100" when pressing "1"
-            const target = btns.find(b => b.innerText.trim() === label);
-            if (target) target.click();
-        } 
-        
+        if (e.target.tagName === 'INPUT') return;
         if (e.key === 'Enter') {
             const action = Array.from(doc.querySelectorAll('button')).find(b => 
                 b.innerText.includes('Reveal') || b.innerText.includes('Next')
@@ -170,13 +176,20 @@ components.html(
 st.sidebar.metric("Streak", st.session_state.state['streak'])
 show_defs = st.sidebar.checkbox("Show Definitions", True)
 
-# --- REVISED FILTER FORM ---
 with st.sidebar.form("settings"):
-    st.write("### Filter Rules")
+    st.write("### Smart Filter")
     length = st.number_input("Word Length", 2, 15, 7)
     
-    # NEW: Natural Language Filter
-    contains_filter = st.text_input("Must contain (e.g. JQXZ)", "")
+    # SMART QUERY INPUT
+    smart_query = st.text_input("Pattern (e.g. ^UN, ING$, 5v, JQZ)", "")
+    st.markdown("""
+    <div class="filter-help">
+    <b>^UN</b> : Starts with UN<br>
+    <b>ING$</b> : Ends with ING<br>
+    <b>5v / 5c</b> : 5 Vowels or Consonants<br>
+    <b>JQZ</b> : Contains J, Q, or Z
+    </div>
+    """, unsafe_allow_html=True)
     
     mode = st.radio("Rank By", ["Prob", "Play"], horizontal=True)
     c1, c2 = st.columns(2)
@@ -184,24 +197,25 @@ with st.sidebar.form("settings"):
     
     if st.form_submit_button("Apply & Reset"):
         param = 4 if mode == "Prob" else 5
-        
-        # Logic: Filter by Length AND Range AND (Optional) Letters
-        # The 'contains_filter' checks if the alphagram contains ANY of the letters typed
-        target_chars = set(contains_filter.upper())
-        
         filtered = []
+        
+        # We must iterate items to check word properties (for starts/ends with)
         for a, words in alpha_map.items():
             if len(a) != length: continue
             
-            # Check Range
-            if not any(v_min <= w[param] <= v_max for w in words): continue
+            # Check if ANY word in this alphagram group matches the Smart Filter
+            # If at least one word matches, we include the rack.
+            match_found = False
+            for w in words:
+                # w[0] is the word string
+                # w[param] is prob or play value
+                if (v_min <= w[param] <= v_max) and check_smart_filter(w[0], smart_query):
+                    match_found = True
+                    break
             
-            # Check Letters (if user typed something)
-            if target_chars:
-                if not any(char in a for char in target_chars): continue
-            
-            filtered.append(a)
-
+            if match_found:
+                filtered.append(a)
+                
         st.session_state.state['filtered_alphas'] = filtered
         st.session_state.state['needs_new_rack'] = True
         st.rerun()
@@ -211,23 +225,20 @@ col_l, col_r = st.columns([1, 1], gap="large")
 with col_l:
     st.markdown(f"<div class='rack-text'>{st.session_state.state['display_alpha']}</div>", unsafe_allow_html=True)
     
-    # --- CUSTOM BUTTON ROW (0-9+) ---
-    # We use a CSS container to flow them like pills
-    st.markdown('<div class="pill-container">', unsafe_allow_html=True)
+    # NATIVE PILLS (0-9+)
+    selection = st.pills(
+        "Solution Count:", 
+        options=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9+"], 
+        selection_mode="single", 
+        key=f"pills_{st.session_state.state['current_rack_id']}",
+        label_visibility="collapsed"
+    )
     
-    # Note: Streamlit buttons cannot be nested directly in HTML div strings easily.
-    # So we use st.columns with a special layout or just simple buttons with CSS float.
-    # The safest way is using `st.columns` but allowing them to wrap.
-    # Since we want 10 buttons, let's use a dense row.
-    
-    cols = st.columns(10)
-    for i in range(10):
-        label = str(i) if i < 9 else "9+"
-        # Using a unique key ensures state reset
-        if cols[i].button(label, key=f"btn_{i}_{st.session_state.state['current_rack_id']}", on_click=cb_guess, args=(i,)):
-            pass # Callback handles logic
-            
-    st.markdown('</div>', unsafe_allow_html=True)
+    if selection and not st.session_state.state['answered']:
+        val = 9 if selection == "9+" else int(selection)
+        st.session_state.state['last_guess'] = val
+        st.session_state.state['answered'] = True
+        st.rerun()
 
     st.write("")
     if not st.session_state.state['answered']:
@@ -253,8 +264,7 @@ with col_r:
                 st.session_state.state['streak'] += 1
                 st.session_state.state['last_scored_id'] = s['display_alpha']
         else:
-            g_str = str(ug) if ug < 9 else "9+"
-            st.error(f"WRONG. Actual: {real} | You: {g_str}")
+            st.error(f"WRONG. Actual: {real}")
             st.session_state.state['streak'] = 0
             
         if s['current_solutions']:
