@@ -81,36 +81,6 @@ def find_anagrams(rack):
             if m[0] not in seen: results.append(m); seen.add(m[0])
     return results
 
-# --- RACK GENERATION ---
-if alpha_map and st.session_state.state['needs_new_rack']:
-    filtered_list = st.session_state.state['filtered_alphas'] or [a for a in alpha_map.keys() if len(a) == 7]
-    
-    sample_len = len(filtered_list[0])
-    phony_chance = 0.20 if sample_len <= 6 else (0.15 if sample_len == 7 else 0.10)
-    st.session_state.state['is_phony'] = random.random() < phony_chance
-    rack = random.choice(filtered_list)
-    
-    if random.random() < 0.20:
-        arr = list(rack); arr[random.randint(0, len(arr)-1)] = '?'
-        rack = "".join(sorted(arr))
-    
-    if st.session_state.state['is_phony']:
-        for _ in range(30):
-            v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
-            arr = list(rack); idx = random.randint(0, len(arr)-1)
-            if arr[idx] == '?': continue
-            source = v if arr[idx] in v else c
-            arr[idx] = random.choice([x for x in source if x != arr[idx]])
-            test = "".join(sorted(arr))
-            if not (find_anagrams(test) if '?' in test else alpha_map.get(test, [])):
-                rack = test; break
-                
-    st.session_state.state.update({
-        'display_alpha': rack,
-        'current_solutions': find_anagrams(rack) if '?' in rack else alpha_map.get(rack, []),
-        'needs_new_rack': False
-    })
-
 # --- 4. SIDEBAR SETTINGS ---
 study_mode = st.sidebar.radio("Study Mode", ["Anagrams", "Hooks"], horizontal=True)
 st.sidebar.metric("Streak", st.session_state.state['streak'])
@@ -131,6 +101,37 @@ with st.sidebar.form("settings"):
         st.session_state.state['needs_new_rack'] = True
         st.rerun()
 
+# --- RACK GENERATION ---
+if alpha_map and st.session_state.state['needs_new_rack']:
+    filtered_list = st.session_state.state['filtered_alphas'] or [a for a in alpha_map.keys() if len(a) == 7]
+    
+    sample_len = len(filtered_list[0])
+    phony_chance = 0.20 if sample_len <= 6 else (0.15 if sample_len == 7 else 0.10)
+    st.session_state.state['is_phony'] = random.random() < phony_chance
+    rack = random.choice(filtered_list)
+    
+    # Only use blanks for Anagram mode
+    if study_mode == "Anagrams" and random.random() < 0.20:
+        arr = list(rack); arr[random.randint(0, len(arr)-1)] = '?'
+        rack = "".join(sorted(arr))
+    
+    if st.session_state.state['is_phony']:
+        for _ in range(30):
+            v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
+            arr = list(rack); idx = random.randint(0, len(arr)-1)
+            if arr[idx] == '?': continue
+            source = v if arr[idx] in v else c
+            arr[idx] = random.choice([x for x in source if x != arr[idx]])
+            test = "".join(sorted(arr))
+            if not (find_anagrams(test) if '?' in test else alpha_map.get(test, [])):
+                rack = test; break
+                
+    st.session_state.state.update({
+        'display_alpha': rack,
+        'current_solutions': find_anagrams(rack) if '?' in rack else alpha_map.get(rack, []),
+        'needs_new_rack': False
+    })
+
 # --- 5. UI LAYOUT ---
 components.html("<script>const doc = window.parent.document; doc.addEventListener('keydown', function(e) { if (e.target.tagName === 'INPUT') return; if (e.key === 'Enter') { const action = Array.from(doc.querySelectorAll('button')).find(b => b.innerText.includes('Reveal') || b.innerText.includes('Next') || b.innerText.includes('Check')); if (action) action.click(); } });</script>", height=0)
 
@@ -141,20 +142,25 @@ with col_l:
     
     if study_mode == "Hooks":
         if st.session_state.state['is_phony']:
-            st.warning("PHONY rack. No hooks to study.")
+            st.warning("PHONY rack. No hooks to study. Click Next.")
         elif st.session_state.state['current_solutions']:
             sol = st.session_state.state['current_solutions'][0]
+            # Normalize the correct answers from the file
+            actual_f = sol[2].strip().upper()
+            actual_b = sol[3].strip().upper()
+
             c1, c2 = st.columns(2)
             u_f = c1.text_input("Front Hooks", key=f"f_{st.session_state.state['current_rack_id']}").upper().strip()
             u_b = c2.text_input("Back Hooks", key=f"b_{st.session_state.state['current_rack_id']}").upper().strip()
             
             if st.button("Check Hooks (Enter)"):
                 st.session_state.state['answered'] = True
-                if set(u_f) == set(sol[2].strip()) and set(u_b) == set(sol[3].strip()):
+                # Set-based comparison to allow any order of characters
+                if set(u_f) == set(actual_f) and set(u_b) == set(actual_b):
                     st.success("Perfect!")
                     st.session_state.state['streak'] += 1
                 else:
-                    st.error(f"Actual: Front [{sol[2]}] Back [{sol[3]}]")
+                    st.error(f"Actual: Front [{actual_f}] Back [{actual_b}]")
                     st.session_state.state['streak'] = 0
     else:
         selection = st.pills("Count:", ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9+"], selection_mode="single", key=f"p_{st.session_state.state['current_rack_id']}", label_visibility="collapsed")
