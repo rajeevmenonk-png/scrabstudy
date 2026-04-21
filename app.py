@@ -20,22 +20,13 @@ if 'state' not in st.session_state:
 st.markdown("""
     <style>
         .block-container { padding-top: 1rem; }
-        
-        /* ALPHAGRAM */
         .rack-text {
             text-align: center; letter-spacing: 5px; color: #f1c40f; 
             font-size: clamp(2.5rem, 6vw, 4.5rem); font-weight: 900;
             white-space: nowrap; margin-bottom: 20px;
         }
-
-        /* Action Buttons */
         .reveal-btn button { background-color: #3498db !important; color: white !important; width: 100%; height: 50px; border-radius: 12px; border: none; font-weight: bold; font-size: 1.1rem; }
         .next-btn button { background-color: #27ae60 !important; color: white !important; width: 100%; height: 50px; border-radius: 12px; border: none; font-weight: bold; font-size: 1.1rem; }
-        
-        /* Pill Styling Enhancement */
-        div[data-baseweb="select"] > div { font-weight: bold; }
-        
-        /* Help Text */
         .filter-help { font-size: 0.8rem; color: #888; margin-bottom: 10px; }
     </style>
 """, unsafe_allow_html=True)
@@ -58,33 +49,15 @@ def load_lexicon(filename):
 
 alpha_map = load_lexicon("CSW24 2-15.txt")
 
-# --- SMART FILTER LOGIC ---
 def check_smart_filter(word, query):
     if not query: return True
     query = query.upper().strip()
-    
-    # 1. Prefix (e.g., ^UN)
-    if query.startswith("^"):
-        return word.startswith(query[1:])
-    
-    # 2. Suffix (e.g., ING$)
-    if query.endswith("$"):
-        return word.endswith(query[:-1])
-    
-    # 3. Vowel Count (e.g., 5v)
+    if query.startswith("^"): return word.startswith(query[1:])
+    if query.endswith("$"): return word.endswith(query[:-1])
     if 'V' in query and query[:-1].isdigit():
-        vowels = sum(1 for c in word if c in 'AEIOU')
-        target = int(query[:-1])
-        return vowels == target
-    
-    # 4. Consonant Count (e.g., 5c)
+        return sum(1 for c in word if c in 'AEIOU') == int(query[:-1])
     if 'C' in query and query[:-1].isdigit():
-        cons = sum(1 for c in word if c not in 'AEIOU')
-        target = int(query[:-1])
-        return cons == target
-
-    # 5. Default: Contains ANY of the letters (e.g., JQZ)
-    # Check if the word contains at least one of the letters in query
+        return sum(1 for c in word if c not in 'AEIOU') == int(query[:-1])
     return any(char in word for char in query)
 
 # --- GAME CALLBACKS ---
@@ -108,41 +81,27 @@ def find_anagrams(rack):
             if m[0] not in seen: results.append(m); seen.add(m[0])
     return results
 
+# --- RACK GENERATION ---
 if alpha_map and st.session_state.state['needs_new_rack']:
-    if not st.session_state.state['filtered_alphas']:
-        # Fallback
-        st.session_state.state['filtered_alphas'] = [a for a in alpha_map.keys() if len(a) == 7]
+    filtered_list = st.session_state.state['filtered_alphas'] or [a for a in alpha_map.keys() if len(a) == 7]
     
-    # --- SMART PHONY LOGIC ---
-    # Length-dependent frequency
-    # Short words (<=6) are harder to spot, so we keep phonies common (20%)
-    # Long words (8+) are easier to spot, so we lower phonies (10%)
-    filtered_list = st.session_state.state['filtered_alphas']
-    if filtered_list:
-        sample_len = len(filtered_list[0])
-        phony_chance = 0.20 if sample_len <= 6 else (0.15 if sample_len == 7 else 0.10)
-    else:
-        phony_chance = 0.15
-
+    sample_len = len(filtered_list[0])
+    phony_chance = 0.20 if sample_len <= 6 else (0.15 if sample_len == 7 else 0.10)
     st.session_state.state['is_phony'] = random.random() < phony_chance
     rack = random.choice(filtered_list)
     
-    # Blank Handling
     if random.random() < 0.20:
         arr = list(rack); arr[random.randint(0, len(arr)-1)] = '?'
         rack = "".join(sorted(arr))
     
-    # Phony Generation (Swapping)
     if st.session_state.state['is_phony']:
         for _ in range(30):
             v, c = 'AEIOU', 'BCDFGHJKLMNPQRSTVWXYZ'
             arr = list(rack); idx = random.randint(0, len(arr)-1)
             if arr[idx] == '?': continue
-            # Swap Vowel->Vowel or Consonant->Consonant for realism
             source = v if arr[idx] in v else c
             arr[idx] = random.choice([x for x in source if x != arr[idx]])
             test = "".join(sorted(arr))
-            # Verify it's actually invalid
             if not (find_anagrams(test) if '?' in test else alpha_map.get(test, [])):
                 rack = test; break
                 
@@ -152,95 +111,58 @@ if alpha_map and st.session_state.state['needs_new_rack']:
         'needs_new_rack': False
     })
 
-# --- 4. KEYBOARD LISTENER (ENTER ONLY) ---
-# Since pills don't support 0-9 keyboard input natively, we focus on Enter for flow
-components.html(
-    """
-    <script>
-    const doc = window.parent.document;
-    doc.addEventListener('keydown', function(e) {
-        if (e.target.tagName === 'INPUT') return;
-        if (e.key === 'Enter') {
-            const action = Array.from(doc.querySelectorAll('button')).find(b => 
-                b.innerText.includes('Reveal') || b.innerText.includes('Next')
-            );
-            if (action) action.click();
-        }
-    });
-    </script>
-    """,
-    height=0,
-)
-
-# --- 5. UI LAYOUT ---
+# --- 4. SIDEBAR SETTINGS ---
+study_mode = st.sidebar.radio("Study Mode", ["Anagrams", "Hooks"], horizontal=True)
 st.sidebar.metric("Streak", st.session_state.state['streak'])
 show_defs = st.sidebar.checkbox("Show Definitions", True)
 
 with st.sidebar.form("settings"):
     st.write("### Smart Filter")
     length = st.number_input("Word Length", 2, 15, 7)
-    
-    # SMART QUERY INPUT
     smart_query = st.text_input("Pattern (e.g. ^UN, ING$, 5v, JQZ)", "")
-    st.markdown("""
-    <div class="filter-help">
-    <b>^UN</b> : Starts with UN<br>
-    <b>ING$</b> : Ends with ING<br>
-    <b>5v / 5c</b> : 5 Vowels or Consonants<br>
-    <b>JQZ</b> : Contains J, Q, or Z
-    </div>
-    """, unsafe_allow_html=True)
-    
     mode = st.radio("Rank By", ["Prob", "Play"], horizontal=True)
     c1, c2 = st.columns(2)
     v_min, v_max = c1.number_input("Min", 0, 200000, 0), c2.number_input("Max", 0, 200000, 40000)
     
     if st.form_submit_button("Apply & Reset"):
         param = 4 if mode == "Prob" else 5
-        filtered = []
-        
-        # We must iterate items to check word properties (for starts/ends with)
-        for a, words in alpha_map.items():
-            if len(a) != length: continue
-            
-            # Check if ANY word in this alphagram group matches the Smart Filter
-            # If at least one word matches, we include the rack.
-            match_found = False
-            for w in words:
-                # w[0] is the word string
-                # w[param] is prob or play value
-                if (v_min <= w[param] <= v_max) and check_smart_filter(w[0], smart_query):
-                    match_found = True
-                    break
-            
-            if match_found:
-                filtered.append(a)
-                
+        filtered = [a for a, words in alpha_map.items() if len(a) == length and any((v_min <= w[param] <= v_max) and check_smart_filter(w[0], smart_query) for w in words)]
         st.session_state.state['filtered_alphas'] = filtered
         st.session_state.state['needs_new_rack'] = True
         st.rerun()
+
+# --- 5. UI LAYOUT ---
+components.html("<script>const doc = window.parent.document; doc.addEventListener('keydown', function(e) { if (e.target.tagName === 'INPUT') return; if (e.key === 'Enter') { const action = Array.from(doc.querySelectorAll('button')).find(b => b.innerText.includes('Reveal') || b.innerText.includes('Next') || b.innerText.includes('Check')); if (action) action.click(); } });</script>", height=0)
 
 col_l, col_r = st.columns([1, 1], gap="large")
 
 with col_l:
     st.markdown(f"<div class='rack-text'>{st.session_state.state['display_alpha']}</div>", unsafe_allow_html=True)
     
-    # NATIVE PILLS (0-9+)
-    selection = st.pills(
-        "Solution Count:", 
-        options=["0", "1", "2", "3", "4", "5", "6", "7", "8", "9+"], 
-        selection_mode="single", 
-        key=f"pills_{st.session_state.state['current_rack_id']}",
-        label_visibility="collapsed"
-    )
-    
-    if selection and not st.session_state.state['answered']:
-        val = 9 if selection == "9+" else int(selection)
-        st.session_state.state['last_guess'] = val
-        st.session_state.state['answered'] = True
-        st.rerun()
+    if study_mode == "Hooks":
+        if st.session_state.state['is_phony']:
+            st.warning("PHONY rack. No hooks to study.")
+        elif st.session_state.state['current_solutions']:
+            sol = st.session_state.state['current_solutions'][0]
+            c1, c2 = st.columns(2)
+            u_f = c1.text_input("Front Hooks", key=f"f_{st.session_state.state['current_rack_id']}").upper().strip()
+            u_b = c2.text_input("Back Hooks", key=f"b_{st.session_state.state['current_rack_id']}").upper().strip()
+            
+            if st.button("Check Hooks (Enter)"):
+                st.session_state.state['answered'] = True
+                if set(u_f) == set(sol[2].strip()) and set(u_b) == set(sol[3].strip()):
+                    st.success("Perfect!")
+                    st.session_state.state['streak'] += 1
+                else:
+                    st.error(f"Actual: Front [{sol[2]}] Back [{sol[3]}]")
+                    st.session_state.state['streak'] = 0
+    else:
+        selection = st.pills("Count:", ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9+"], selection_mode="single", key=f"p_{st.session_state.state['current_rack_id']}", label_visibility="collapsed")
+        if selection and not st.session_state.state['answered']:
+            st.session_state.state['last_guess'] = 9 if selection == "9+" else int(selection)
+            st.session_state.state['answered'] = True
+            st.rerun()
 
-    st.write("")
     if not st.session_state.state['answered']:
         st.markdown('<div class="reveal-btn">', unsafe_allow_html=True)
         st.button("Reveal Answer (Enter)", on_click=cb_reveal)
@@ -254,24 +176,16 @@ with col_r:
     s = st.session_state.state
     if s['answered']:
         real = len(s['current_solutions'])
-        ug = s['last_guess']
-        is_cor = (ug == real) or (ug == 9 and real >= 9)
+        if study_mode == "Anagrams" and s['last_guess'] is not None:
+            if (s['last_guess'] == real) or (s['last_guess'] == 9 and real >= 9):
+                st.success(f"CORRECT! ({real})")
+                if s['last_scored_id'] != s['display_alpha']:
+                    st.session_state.state['streak'] += 1
+                    s['last_scored_id'] = s['display_alpha']
+            elif s['last_guess'] != -1:
+                st.error(f"WRONG. Actual: {real}")
         
-        if ug == -1: st.info(f"Revealed: {real}")
-        elif is_cor:
-            st.success(f"CORRECT! ({real})")
-            if s['last_scored_id'] != s['display_alpha']:
-                st.session_state.state['streak'] += 1
-                st.session_state.state['last_scored_id'] = s['display_alpha']
-        else:
-            st.error(f"WRONG. Actual: {real}")
-            st.session_state.state['streak'] = 0
-            
-        if s['current_solutions']:
-            for sol in sorted(s['current_solutions'], key=lambda x: x[0]):
-                with st.expander(f"📖 {sol[0]}", expanded=True):
-                    st.write(f"**Hooks:** `[{sol[2]}]` {sol[0]} `[{sol[3]}]`")
-                    st.caption(f"Prob: {sol[4]} | Play: {sol[5]}")
-                    if show_defs: st.write(f"*{sol[1]}*")
-        else:
-            st.info("PHONY.")
+        for sol in sorted(s['current_solutions'], key=lambda x: x[0]):
+            with st.expander(f"📖 {sol[0]}", expanded=True):
+                st.write(f"**Hooks:** `[{sol[2]}]` {sol[0]} `[{sol[3]}]`")
+                if show_defs: st.write(f"*{sol[1]}*")
